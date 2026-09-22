@@ -242,7 +242,7 @@ def add_card(req: SignedRequest = Depends(signed_terminal), db: Session = Depend
     require_role(req, "enroll")
     data = req.parse(CardAddIn)
     card, phone_hint = cards.add_card(db, req.terminal, data.phone, data.pin, data.number, data.expire)
-    return {**_card_out(card), "sms_sent_to": phone_hint}
+    return {**_card_out(card), "sms_sent_to": phone_hint, "demo": card.provider == "mock"}
 
 
 @app.post("/v1/cards/{card_id}/verify")

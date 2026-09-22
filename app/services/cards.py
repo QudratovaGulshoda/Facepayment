@@ -33,6 +33,11 @@ def _user(db: Session, phone: str) -> User:
     return user
 
 
+def mask_phone(phone: str) -> str:
+    """+998948431011 -> +99894*****11"""
+    return phone[:6] + "*" * max(len(phone) - 8, 0) + phone[-2:]
+
+
 def add_card(db: Session, terminal: Terminal, phone: str, pin: str, number: str, expire: str) -> tuple[Card, str]:
     s = get_settings()
     user = _user(db, phone)
@@ -44,7 +49,8 @@ def add_card(db: Session, terminal: Terminal, phone: str, pin: str, number: str,
     gw = get_gateway()
     try:
         info = gw.create_card(number, expire)
-        phone_hint = gw.send_code(info.token) or info.phone_hint
+        # Real protsessing kartaga bankda bog'langan raqamni qaytaradi; demo'da — foydalanuvchi raqami
+        phone_hint = gw.send_code(info.token) or info.phone_hint or mask_phone(phone)
     except GatewayError as e:
         raise ServiceError(e.code, 400)
 

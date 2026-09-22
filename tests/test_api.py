@@ -427,3 +427,9 @@ def test_pin_reset_unlocks_account(env):
             env["pay"].post(f"/v1/payments/{tx}/pin", {"pin": "0000"})
     assert reset_pin(env, me).status_code == 200
     assert pay(env, me, 1_700).json()["status"] == "approved"
+
+
+def test_demo_card_sms_hint_is_users_own_phone(env):
+    enroll(env, random_unit(env["rng"]), phone="+998948431011")
+    r = env["enroll"].post("/v1/cards", {"phone": "+998948431011", "pin": "4821", "number": GOOD_CARD, "expire": "0829"})
+    assert r.json()["sms_sent_to"] == "+99894*****11" and r.json()["demo"] is True

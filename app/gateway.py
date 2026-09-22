@@ -37,7 +37,7 @@ class GatewayError(Exception):
 class CardInfo:
     token: str
     masked: str        # 8600 **** **** 1234
-    phone_hint: str    # SMS yuborilgan telefon (niqoblangan): 99890*****67
+    phone_hint: str    # SMS yuborilgan telefon (niqoblangan), masalan +99890*****67
 
 
 class CardGateway(Protocol):
@@ -92,11 +92,12 @@ class MockGateway:
         number = validate_card(number, expire)
         digest = hashlib.sha256(f"{number}{expire}{next(self._ids)}".encode()).hexdigest()[:32]
         flag = "nf" if number.endswith("0000") else "ok"
-        return CardInfo(f"mock_{digest}_{flag}", mask(number), "99890*****67")
+        return CardInfo(f"mock_{digest}_{flag}", mask(number), "")
 
     def send_code(self, token: str) -> str:
+        # Demo: SMS yuborilmaydi. Bo'sh qiymat -> servis foydalanuvchining o'z raqamini ko'rsatadi
         self._check(token)
-        return "99890*****67"
+        return ""
 
     def verify(self, token: str, code: str) -> None:
         self._check(token)

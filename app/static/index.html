@@ -362,7 +362,9 @@ $("#cd-btn").onclick = (e) => busy(e.target, async () => {
     number: $("#cd-number").value.replace(/\D/g, ""), expire: $("#cd-exp").value });
   $("#cd-pin").value = "";
   if (r.status === 201) { $("#cd-number").value = ""; pendingCard = r.data.card_id; $("#cd-verify").hidden = false;
-    show("#cd-result", "warn", `${r.data.masked}: SMS kod ${r.data.sms_sent_to} raqamiga yuborildi.`); }
+    show("#cd-result", "warn", r.data.demo
+      ? `${r.data.masked}: demo rejim — haqiqiy SMS yuborilmaydi. Kodni kiriting: 666666`
+      : `${r.data.masked}: SMS kod ${r.data.sms_sent_to} raqamiga yuborildi.`); }
   else show("#cd-result", "err", errText(codeOf(r)));
 });
 $("#cd-code-btn").onclick = (e) => busy(e.target, async () => {

@@ -250,6 +250,7 @@ tests/                       56 ta test
 - **Masshtab:** galereya RAM'da saqlanadi (numpy). Millionlab foydalanuvchi uchun FAISS/HNSW indeks, PostgreSQL, Redis (nonce va rate limit) kerak bo'ladi.
 - **Kalitlarni boshqarish:** master kalit `.env` da turibdi. Prod muhitda HSM yoki KMS ishlatiladi, kalitlar muntazam almashtiriladi (versiya maydoni tayyor).
 - **Passiv liveness:** MiniFASNetV2 ochiq ma'lumotlarda o'qitilgan. Real kamera va yoritish sharoitida qo'shimcha o'qitish (fine-tuning) aniqlikni oshiradi. Model yo'q bo'lsa ishlatiladigan evristika zaif, uni faqat demo uchun ishlatish mumkin.
+- **PIN tiklash uchun SMS:** hozir PIN faqat yuz orqali tiklanadi (liveness + 1:N margin). Real tizimda qo'shimcha ravishda ro'yxatdagi telefonga SMS kod yuboriladi (SMS provayder: Eskiz, Play Mobile).
 - **Karta protsessingi:** Payme integratsiyasi yozilgan, lekin haqiqiy merchant kaliti bilan sinalmagan. Metod nomlari va maydonlarni Payme hujjatlari bilan solishtirish kerak.
 
 ## Litsenziyalar
