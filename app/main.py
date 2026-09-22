@@ -24,7 +24,7 @@ from app.config import get_settings
 from app.core import audit, get_core, verify_audit_chain
 from app.db import Challenge, Merchant, Terminal, get_session, session_factory, utcnow
 from app.schemas import (CaptureIn, CardAddIn, CardVerifyIn, DeleteIn, EnrollIn, MerchantIn, PaymentIn,
-                         PhonePinIn, PinIn, TerminalIn, TopUpIn, VariantIn)
+                         PhonePinIn, PinIn, PinResetIn, TerminalIn, TopUpIn, VariantIn)
 from app.security.terminal_auth import SignatureError, verify_request
 from app.services import cards, payments, users
 from app.services.users import ServiceError
@@ -179,6 +179,15 @@ def add_variant(req: SignedRequest = Depends(signed_terminal), db: Session = Dep
     capture = consume_challenge(db, req.terminal, data)
     t = users.add_variant(db, req.terminal, data.phone, data.pin, data.label, capture)
     return {"template_id": t.id, "label": t.label}
+
+
+@app.post("/v1/users/reset-pin")
+def reset_pin(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    require_role(req, "enroll")
+    data = req.parse(PinResetIn)
+    capture = consume_challenge(db, req.terminal, data)
+    users.reset_pin(db, req.terminal, data.phone, data.new_pin, capture)
+    return {"reset": True}
 
 
 @app.post("/v1/users/delete")

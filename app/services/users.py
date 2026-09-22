@@ -137,6 +137,32 @@ def add_variant(db: Session, terminal: Terminal, phone: str, pin: str, label: st
     return t
 
 
+def reset_pin(db: Session, terminal: Terminal, phone: str, new_pin: str, capture: CaptureResult) -> None:
+    """PIN esdan chiqsa: yuz (liveness bilan) orqali shaxs tasdiqlanadi va yangi PIN o'rnatiladi.
+
+    Shartlar to'lovdagidan qattiqroq: yuz shu hisobga ishonchli mos kelishi VA butun bazada
+    eng yaqin odam aynan shu foydalanuvchi bo'lishi (margin bilan) kerak.
+    Prod'da qo'shimcha ravishda ro'yxatdagi telefonga SMS kod yuboriladi.
+    """
+    core = get_core()
+    s = get_settings()
+    user = find_user_by_phone(db, phone)
+    if not user or user.status != "active":
+        raise ServiceError("topilmadi", 404)
+    protected = core.transform.protect(capture.embedding)
+    result = core.gallery.search(protected)
+    if result.user_id != user.id or result.score < s.match_threshold or \
+            result.score - result.second_score < s.min_margin:
+        audit(db, f"terminal:{terminal.id}", "pin_reset_face_mismatch", user_id=user.id)
+        db.commit()
+        raise ServiceError("yuz_mos_emas", 401)
+    user.pin_hash = hash_pin(new_pin)
+    user.pin_failed = 0
+    user.locked_until = None
+    audit(db, f"terminal:{terminal.id}", "pin_reset", user_id=user.id, score=round(result.score, 3))
+    db.commit()
+
+
 def delete_user_data(db: Session, terminal: Terminal, phone: str, pin: str, capture: CaptureResult) -> None:
     """Unutilish huquqi: biometrik shablonlar, kartalar va shaxsiy ma'lumotlar butunlay o'chiriladi.
     Tranzaksiyalar (buxgalteriya talabi) anonim ID bilan qoladi."""

@@ -86,6 +86,14 @@
       <label for="en-consent" style="margin:0">Yuz shablonim shifrlangan holda saqlanishiga roziman. Rasmim saqlanmaydi, ma'lumotlarimni istalgan vaqtda o'chirishim mumkin.</label></div>
     <button class="primary" id="en-btn">Ro'yxatdan o'tish</button>
     <div class="result" id="en-result" hidden></div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:18px 0 6px">
+    <p class="muted"><b>PIN esdan chiqdimi?</b> Telefon va yangi PIN'ni kiriting — shaxsingiz yuzingiz orqali tasdiqlanadi.</p>
+    <label for="rp-phone">Telefon</label>
+    <input id="rp-phone" type="tel" placeholder="+998901234567">
+    <label for="rp-pin">Yangi PIN</label>
+    <input id="rp-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+    <button class="primary" id="rp-btn" style="background:transparent;color:var(--accent);border:1px solid var(--accent)">Yuz orqali PIN'ni tiklash</button>
+    <div class="result" id="rp-result" hidden></div>
   </section>
 
   <section id="tab-card" hidden>
@@ -337,6 +345,15 @@ $("#en-btn").onclick = (e) => busy(e.target, async () => {
   r.status === 201 ? show("#en-result", "ok", `✓ Ro'yxatdan o'tdingiz (${r.data.templates} ta shablon). Endi "Karta" bo'limida kartangizni ulang.`)
                    : show("#en-result", "err", errText(codeOf(r)));
 });
+
+$("#rp-btn").onclick = (e) => busy(e.target, async () => {
+  const r = await withChallenge("enroll", "/v1/users/reset-pin",
+    { phone: $("#rp-phone").value.replace(/\s/g, ""), new_pin: $("#rp-pin").value });
+  $("#rp-pin").value = "";
+  r.status === 200 ? show("#rp-result", "ok", "✓ Yangi PIN o'rnatildi. Endi uni ishlatishingiz mumkin.")
+                   : show("#rp-result", "err", errText(codeOf(r)));
+});
+FIELD_ERRORS.new_pin = FIELD_ERRORS.pin;
 
 // ---------- Karta ----------
 let pendingCard = null;

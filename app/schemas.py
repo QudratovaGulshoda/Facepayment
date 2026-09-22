@@ -23,6 +23,16 @@ class EnrollIn(CaptureIn):
         return v
 
 
+class PinResetIn(CaptureIn):
+    phone: str = Field(..., pattern=PHONE_PATTERN)
+    new_pin: str = Field(..., pattern=r"^\d{4,6}$")
+
+    @field_validator("new_pin")
+    @classmethod
+    def weak_pin(cls, v: str) -> str:
+        return EnrollIn.weak_pin(v)
+
+
 class VariantIn(CaptureIn):
     phone: str = Field(..., pattern=PHONE_PATTERN)
     pin: str = Field(..., pattern=r"^\d{4,6}$")

@@ -394,3 +394,36 @@ def test_card_number_not_stored(env):
     assert GOOD_CARD.encode() not in raw
     # protsessing tokeni (mock_<32 hex>_ok) ham shifrlangan
     assert re.search(rb"mock_[0-9a-f]{32}_(ok|nf)", raw) is None
+
+
+# ---------------- PIN tiklash ----------------
+
+def reset_pin(env, emb, new_pin="7392", phone="+998901234567"):
+    return env["enroll"].post("/v1/users/reset-pin", {**capture(env, env["enroll"], emb),
+                                                      "phone": phone, "new_pin": new_pin})
+
+
+def test_forgotten_pin_reset_with_face(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    assert reset_pin(env, me).status_code == 200
+    tx = pay(env, me, 450_000).json()["transaction_id"]
+    ok = env["pay"].post(f"/v1/payments/{tx}/pin", {"pin": "7392"}).json()
+    assert ok["status"] == "approved"
+
+
+def test_pin_reset_rejects_other_face(env):
+    enroll(env, random_unit(env["rng"]))
+    r = reset_pin(env, random_unit(env["rng"]))
+    assert r.status_code == 401 and r.json()["error"] == "yuz_mos_emas"
+
+
+def test_pin_reset_unlocks_account(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    for _ in range(2):
+        tx = pay(env, me, 450_000).json()["transaction_id"]
+        for _ in range(3):
+            env["pay"].post(f"/v1/payments/{tx}/pin", {"pin": "0000"})
+    assert reset_pin(env, me).status_code == 200
+    assert pay(env, me, 1_700).json()["status"] == "approved"
