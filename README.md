@@ -136,7 +136,19 @@ Demo kartalar:
 
 ## Internetda ishlaydigan versiya
 
-**https://qudratovagulshoda--facepay-web.modal.run**: brauzer terminali (telefon yoki noutbukda oching). API hujjatlari: `/docs`
+| Sahifa | Kim uchun | Manzil |
+|---|---|---|
+| Mijoz kabineti | mijoz, o'z telefonida | https://qudratovagulshoda--facepay-web.modal.run |
+| Mijoz ekrani | mijozga qaragan kamerali planshet: summa, yuz, PIN | https://qudratovagulshoda--facepay-web.modal.run/ekran |
+| Kassa | sotuvchi: summa kiritadi, natijani ko'radi (kamerasiz) | https://qudratovagulshoda--facepay-web.modal.run/kassa |
+
+API hujjatlari: `/docs`
+
+**Ikki qurilmali kassa qanday ishlaydi:**
+1. **Mijoz ekrani** admin kaliti bilan bir marta ro'yxatdan o'tkaziladi, keyin 6 xonali **ulash kodi** ko'rsatadi.
+2. **Kassa** shu kod bilan ulanadi. Kod bir martalik, 10 daqiqa amal qiladi, bazada faqat HMAC xeshi saqlanadi.
+3. Kassir summani kiritadi va u mijoz ekranida chiqadi. Mijoz summani tekshirib, "Yuz bilan to'lash" tugmasini bosadi va kameraga qaraydi. Katta summada PIN'ni **o'z ekranida** kiritadi, kassir uni ko'rmaydi.
+4. **Summani faqat kassa belgilaydi.** Mijoz ekrani faqat so'rov ID sini yuboradi, summani o'zgartira olmaydi. Bitta so'rov ikki marta to'lanmaydi.
 
 [Modal](https://modal.com) serverless platformasida joylashgan. Oyiga $30 bepul kredit beriladi, karta talab qilinmaydi.
 - Server faqat so'rov kelganda yonadi va 10 daqiqa tinch turgandan keyin o'chadi. Shuning uchun birinchi ochilish 30–60 soniya davom etishi mumkin, keyingilari tez ishlaydi.

@@ -24,11 +24,11 @@ from app.biometrics.pipeline import BiometricError, CaptureResult, process_captu
 from app.config import get_settings
 from app.core import audit, get_core, verify_audit_chain
 from app.db import Challenge, Merchant, Terminal, get_session, session_factory, utcnow
-from app.schemas import (CaptureIn, CardAddIn, CardIdPhonePinIn, CardVerifyIn, CardVerifyPortalIn, DeleteIn,
-                         EnrollIn, MerchantIn, PaymentIn, PhonePinIn, PinIn, PinResetIn, TerminalIn, TopUpIn,
-                         VariantIn)
+from app.schemas import (AmountIn, CaptureIn, CardAddIn, CardIdPhonePinIn, CardVerifyIn, CardVerifyPortalIn, DeleteIn,
+                         EnrollIn, MerchantIn, PairIn, PaymentIn, PhonePinIn, PinIn, PinResetIn, TerminalIn,
+                         TopUpIn, VariantIn)
 from app.security.terminal_auth import SignatureError, verify_request
-from app.services import cards, payments, users
+from app.services import cards, checkout, payments, users
 from app.services.users import ServiceError
 
 log = logging.getLogger("facepay")
@@ -155,8 +155,14 @@ def customer_site():
 
 @app.get("/kassa", include_in_schema=False)
 def merchant_kassa():
-    """Sotuvchi kassasi: summa -> mijoz yuzi -> to'lov."""
+    """Sotuvchi kassasi: summa kiritadi va natijani ko'radi (kamerasiz)."""
     return FileResponse(STATIC_DIR / "kassa.html")
+
+
+@app.get("/ekran", include_in_schema=False)
+def customer_display():
+    """Mijozga qaragan ekran: summa, kamera, PIN."""
+    return FileResponse(STATIC_DIR / "ekran.html")
 
 
 STATIC_FILES = {"common.js": "text/javascript", "style.css": "text/css"}
@@ -188,6 +194,8 @@ def _new_challenge(db: Session, terminal: Terminal) -> dict:
 
 @app.post("/v1/liveness/challenge")
 def create_challenge(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    if req.terminal.role not in ("payment", "enroll"):  # kassada kamera yo'q
+        raise HTTPException(403, "ruxsat_yoq")
     return _new_challenge(db, req.terminal)
 
 
@@ -308,6 +316,64 @@ def delete_card(card_id: str, req: SignedRequest = Depends(signed_terminal), db:
     return {"deleted": True}
 
 
+# ---------------- Ikki qurilmali kassa ----------------
+# /ekran — mijozga qaragan qurilma (kamera terminali, role=payment)
+# /kassa — sotuvchi qurilmasi (role=cashier), ekranga ulash kodi orqali ulanadi
+
+@app.post("/v1/terminal/pairing-code")
+def pairing_code(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    require_role(req, "payment")
+    return {"code": checkout.new_pairing_code(db, req.terminal), "expires_in": int(checkout.PAIRING_TTL.total_seconds())}
+
+
+@app.post("/v1/terminal/pending")
+def terminal_pending(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    require_role(req, "payment")
+    return {"request": checkout.pending_for_camera(db, req.terminal)}
+
+
+@app.post("/v1/terminal/requests/{request_id}/pay")
+def terminal_pay_request(request_id: str, req: SignedRequest = Depends(signed_terminal),
+                         db: Session = Depends(get_session)):
+    require_role(req, "payment")
+    data = req.parse(CaptureIn)
+    pr = checkout.claim_request(db, req.terminal, request_id)
+    try:
+        capture = consume_challenge(db, req.terminal, data)
+    except Exception:
+        checkout.release_request(db, pr)  # mijoz qayta urinishi mumkin
+        raise
+    tx, info = checkout.pay_request(db, req.terminal, pr, capture)
+    return _tx_out(tx, info)
+
+
+@app.post("/v1/cashier/requests")
+def cashier_create_request(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    require_role(req, "cashier")
+    pr = checkout.create_request(db, req.terminal, req.parse(AmountIn).amount)
+    return {"request_id": pr.id, "amount": pr.amount, "status": pr.status}
+
+
+@app.post("/v1/cashier/requests/{request_id}")
+def cashier_request_status(request_id: str, req: SignedRequest = Depends(signed_terminal),
+                           db: Session = Depends(get_session)):
+    require_role(req, "cashier")
+    return checkout.request_status(db, request_id, req.terminal)
+
+
+@app.post("/v1/cashier/requests/{request_id}/cancel")
+def cashier_cancel(request_id: str, req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    require_role(req, "cashier")
+    checkout.cancel_request(db, request_id, req.terminal)
+    return {"cancelled": True}
+
+
+@app.post("/v1/cashier/transactions")
+def cashier_transactions(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    require_role(req, "cashier")
+    return checkout.cashier_history(db, req.terminal)
+
+
 # ---------------- Mijoz sayti (ochiq) ----------------
 # Mijoz o'z telefonidan kiradi — imzolaydigan terminal yo'q. Himoya:
 #   - IP bo'yicha qattiq rate limit
@@ -335,6 +401,13 @@ def portal_client(request: Request, db: Session = Depends(get_session)) -> Termi
     if not get_core().portal_limiter.allow(f"ip:{ip}"):
         raise HTTPException(429, "juda_kop_sorov")
     return _portal_terminal(db)
+
+
+@app.post("/v1/pair", status_code=201)
+def pair(data: PairIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    """Kassani mijoz ekraniga ulash. Ochiq, lekin IP limit + 6 xonali bir martalik kod (10 daqiqa)."""
+    cashier, merchant = checkout.pair_cashier(db, data.code, data.public_key_b64, data.name)
+    return {"terminal_id": cashier.id, "merchant": merchant.name if merchant else ""}
 
 
 @app.post("/v1/portal/challenge")

@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     request_max_skew_seconds: int = 30
 
     # --- Rate limit ---
-    rate_limit_per_minute: int = 60
+    rate_limit_per_minute: int = 120        # terminal: mijoz ekrani har 2 s da so'rovlarni tekshiradi
     portal_rate_limit_per_minute: int = 20   # ochiq mijoz sayti: bitta IP dan
 
     # --- Karta protsessingi ---

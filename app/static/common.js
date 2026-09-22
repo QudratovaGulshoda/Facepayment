@@ -174,3 +174,69 @@ const Camera = {
     return res;
   },
 };
+
+// ---------- Qurilma kaliti va imzolangan so'rovlar (kassa va mijoz ekrani) ----------
+// Yopiq kalit IndexedDB da eksport qilib bo'lmaydigan CryptoKey sifatida saqlanadi.
+function keyStore() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("facepay-keys", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("keys");
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function newDeviceKey() {
+  let pair;
+  try { pair = await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]); }
+  catch { return null; }
+  return { pair, pub: b64(await crypto.subtle.exportKey("raw", pair.publicKey)) };
+}
+
+function Device(role) {
+  const lsKey = "facepay_device_" + role;
+  const enc = new TextEncoder();
+  const dev = {
+    onForget: () => {},
+    conf() { try { return JSON.parse(localStorage.getItem(lsKey)); } catch { return null; } },
+    async save(conf, privateKey) {
+      const db = await keyStore();
+      await new Promise((res, rej) => { const tx = db.transaction("keys", "readwrite");
+        tx.objectStore("keys").put(privateKey, role); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+      localStorage.setItem(lsKey, JSON.stringify(conf));
+    },
+    forget() { try { localStorage.removeItem(lsKey); } catch {} dev.onForget(); },
+    async key() {
+      const db = await keyStore();
+      return new Promise((res, rej) => { const r = db.transaction("keys").objectStore("keys").get(role);
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    },
+    async post(path, payload) {
+      const c = dev.conf(), key = await dev.key();
+      if (!c || !key) return { status: 0, data: { error: "terminal_sozlanmagan" } };
+      const body = enc.encode(JSON.stringify(payload));
+      const ts = String(Math.floor(Date.now() / 1000));
+      const nonce = hex(crypto.getRandomValues(new Uint8Array(16)));
+      const canon = ["POST", path, ts, nonce, hex(await crypto.subtle.digest("SHA-256", body))].join("\n");
+      const sig = await crypto.subtle.sign({ name: "Ed25519" }, key, enc.encode(canon));
+      try {
+        const r = await fetch(path, { method: "POST", body, headers: { "Content-Type": "application/json",
+          "X-Terminal-Id": c.id, "X-Timestamp": ts, "X-Nonce": nonce, "X-Signature": b64(sig) } });
+        const data = await r.json().catch(() => ({}));
+        if (r.status === 401 && data.detail === "terminal_nomalum") dev.forget();  // server tomonda o'chirilgan
+        return { status: r.status, data };
+      } catch {
+        return { status: 0, data: { error: "tarmoq" } };
+      }
+    },
+  };
+  return dev;
+}
+
+Object.assign(MESSAGES, {
+  ulash_kodi_notogri: "Ulash kodi noto'g'ri yoki muddati o'tgan. Mijoz ekranida yangi kod oling.",
+  mijoz_ekrani_ulanmagan: "Kassa mijoz ekraniga ulanmagan.",
+  sorov_topilmadi: "To'lov so'rovi topilmadi.",
+  sorov_yaroqsiz: "To'lov so'rovi bekor qilingan yoki muddati o'tgan.",
+  summa_notogri: "Summani to'g'ri kiriting.",
+});

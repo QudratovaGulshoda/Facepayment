@@ -117,7 +117,7 @@ class Terminal(Base):
     name: Mapped[str] = mapped_column(String(120))
     merchant_id: Mapped[str | None] = mapped_column(ForeignKey("merchants.id"), nullable=True)
     public_key_b64: Mapped[str] = mapped_column(String(64))
-    role: Mapped[str] = mapped_column(String(16), default="payment")  # payment | enroll
+    role: Mapped[str] = mapped_column(String(16), default="payment")  # payment | enroll | cashier | portal
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -152,6 +152,45 @@ class Transaction(Base):
     pin_attempts: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class PairingCode(Base):
+    """Mijoz ekrani ko'rsatadigan bir martalik kod: kassa shu kod bilan ulanadi (10 daqiqa)."""
+
+    __tablename__ = "pairing_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code_hash: Mapped[str] = mapped_column(String(64), index=True)
+    camera_terminal_id: Mapped[str] = mapped_column(ForeignKey("terminals.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class TerminalPairing(Base):
+    """Kassa (cashier) qurilmasi qaysi mijoz ekraniga (kamera terminaliga) ulangan."""
+
+    __tablename__ = "terminal_pairings"
+
+    cashier_terminal_id: Mapped[str] = mapped_column(ForeignKey("terminals.id"), primary_key=True)
+    camera_terminal_id: Mapped[str] = mapped_column(ForeignKey("terminals.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PaymentRequest(Base):
+    """Kassa yaratgan to'lov so'rovi. Summani FAQAT kassa belgilaydi, mijoz ekrani o'zgartira olmaydi."""
+
+    __tablename__ = "payment_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    cashier_terminal_id: Mapped[str] = mapped_column(ForeignKey("terminals.id"), index=True)
+    camera_terminal_id: Mapped[str] = mapped_column(ForeignKey("terminals.id"), index=True)
+    amount: Mapped[int] = mapped_column(Integer)
+    # waiting -> processing -> done | cancelled | expired
+    status: Mapped[str] = mapped_column(String(16), default="waiting")
+    transaction_id: Mapped[str | None] = mapped_column(ForeignKey("transactions.id"), nullable=True)
+    customer: Mapped[str | None] = mapped_column(String(64), nullable=True)  # niqoblangan ism
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class AuditLog(Base):

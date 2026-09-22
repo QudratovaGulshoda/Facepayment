@@ -525,8 +525,116 @@ def test_kassa_sees_own_transactions_and_today_total(env):
 
 
 def test_pages_served(env):
-    for path, marker in (("/", "Shaxsiy kabinet"), ("/kassa", "FacePay kassa"),
+    for path, marker in (("/", "Shaxsiy kabinet"), ("/kassa", "FacePay kassa"), ("/ekran", "Mijoz ekrani"),
                          ("/static/common.js", "Camera"), ("/static/style.css", ":root")):
         r = env["http"].get(path)
         assert r.status_code == 200 and marker in r.text, path
     assert env["http"].get("/static/..%2Fmain.py").status_code == 404
+
+
+# ---------------- Ikki qurilmali kassa: sotuvchi + mijoz ekrani ----------------
+
+def pair_cashier(env):
+    """env["pay"] — mijoz ekrani (kamera terminali). Kassa ulash kodi bilan ulanadi."""
+    code = env["pay"].post("/v1/terminal/pairing-code", {}).json()["code"]
+    key = Ed25519PrivateKey.generate()
+    r = env["http"].post("/v1/pair", json={"code": code, "public_key_b64": public_key_b64(key), "name": "Kassa 1"})
+    assert r.status_code == 201, r.text
+    return TerminalClient("", r.json()["terminal_id"], key, http=env["http"])
+
+
+def screen_pay(env, emb, request_id):
+    return env["pay"].post(f"/v1/terminal/requests/{request_id}/pay", capture(env, env["pay"], emb))
+
+
+def test_two_device_checkout(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    kassa = pair_cashier(env)
+    rq = kassa.post("/v1/cashier/requests", {"amount": 1_700}).json()
+    assert kassa.post(f"/v1/cashier/requests/{rq['request_id']}", {}).json()["status"] == "waiting"
+    pending = env["pay"].post("/v1/terminal/pending", {}).json()["request"]
+    assert pending["amount"] == 1_700 and pending["merchant"] == "Metro"
+    tx = screen_pay(env, me, pending["request_id"]).json()
+    assert tx["status"] == "approved"
+    st = kassa.post(f"/v1/cashier/requests/{rq['request_id']}", {}).json()
+    assert st["status"] == "approved" and st["customer"] == "G****** K."
+    assert kassa.post("/v1/cashier/transactions", {}).json()["today_total"] == 1_700
+    assert env["pay"].post("/v1/terminal/pending", {}).json()["request"] is None
+
+
+def test_screen_cannot_change_amount(env):
+    """Mijoz ekrani so'rovga boshqa summa yuborsa ham, kassa belgilagan summa yechiladi."""
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    kassa = pair_cashier(env)
+    rq = kassa.post("/v1/cashier/requests", {"amount": 1_700}).json()
+    body = {**capture(env, env["pay"], me), "amount": 1}
+    tx = env["pay"].post(f"/v1/terminal/requests/{rq['request_id']}/pay", body).json()
+    assert tx["status"] == "approved" and tx["amount"] == 1_700
+
+
+def test_large_amount_pin_on_customer_screen(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    kassa = pair_cashier(env)
+    rq = kassa.post("/v1/cashier/requests", {"amount": 350_000}).json()
+    tx = screen_pay(env, me, rq["request_id"]).json()
+    assert tx["status"] == "pending_pin"
+    assert kassa.post(f"/v1/cashier/requests/{rq['request_id']}", {}).json()["status"] == "pending_pin"
+    env["pay"].post(f"/v1/payments/{tx['transaction_id']}/pin", {"pin": "4821"})
+    assert kassa.post(f"/v1/cashier/requests/{rq['request_id']}", {}).json()["status"] == "approved"
+
+
+def test_failed_liveness_lets_customer_retry(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    kassa = pair_cashier(env)
+    rq = kassa.post("/v1/cashier/requests", {"amount": 1_700}).json()
+    bad = env["pay"].post(f"/v1/terminal/requests/{rq['request_id']}/pay", capture(env, env["pay"], me, static=True))
+    assert bad.status_code == 422
+    assert env["pay"].post("/v1/terminal/pending", {}).json()["request"]["request_id"] == rq["request_id"]
+    assert screen_pay(env, me, rq["request_id"]).json()["status"] == "approved"
+
+
+def test_request_cannot_be_paid_twice(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    kassa = pair_cashier(env)
+    rq = kassa.post("/v1/cashier/requests", {"amount": 1_700}).json()
+    assert screen_pay(env, me, rq["request_id"]).json()["status"] == "approved"
+    assert screen_pay(env, me, rq["request_id"]).status_code == 409
+
+
+def test_cancelled_request_not_payable(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    kassa = pair_cashier(env)
+    rq = kassa.post("/v1/cashier/requests", {"amount": 1_700}).json()
+    kassa.post(f"/v1/cashier/requests/{rq['request_id']}/cancel", {})
+    assert env["pay"].post("/v1/terminal/pending", {}).json()["request"] is None
+    assert screen_pay(env, me, rq["request_id"]).status_code == 409
+
+
+def test_pairing_code_single_use_and_wrong_code(env):
+    code = env["pay"].post("/v1/terminal/pairing-code", {}).json()["code"]
+    k = lambda: public_key_b64(Ed25519PrivateKey.generate())  # noqa: E731
+    wrong = f"{(int(code) + 1) % 10**6:06d}"
+    assert env["http"].post("/v1/pair", json={"code": wrong, "public_key_b64": k()}).status_code == 400
+    assert env["http"].post("/v1/pair", json={"code": code, "public_key_b64": k()}).status_code == 201
+    assert env["http"].post("/v1/pair", json={"code": code, "public_key_b64": k()}).status_code == 400
+
+
+def test_roles_are_separated(env):
+    kassa = pair_cashier(env)
+    # kassa to'g'ridan-to'g'ri to'lov qila olmaydi, mijoz ekrani so'rov yarata olmaydi
+    assert kassa.post("/v1/liveness/challenge", {}).status_code == 403  # kassada kamera yo'q
+    assert kassa.post("/v1/payments", {}).status_code == 403
+    assert kassa.post("/v1/terminal/pending", {}).status_code == 403
+    assert env["pay"].post("/v1/cashier/requests", {"amount": 100}).status_code == 403
+
+
+def test_other_cashier_cannot_see_request(env):
+    kassa1, kassa2 = pair_cashier(env), pair_cashier(env)
+    rq = kassa1.post("/v1/cashier/requests", {"amount": 1_700}).json()
+    assert kassa2.post(f"/v1/cashier/requests/{rq['request_id']}", {}).status_code == 404

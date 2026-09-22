@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FacePay mijoz ekrani</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .screen { text-align: center; padding: 28px 16px; }
+  .screen h2 { font-size: 20px; margin-bottom: 8px; }
+  .big { font-size: 44px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 6px 0; }
+  .merchant { color: var(--muted); font-size: 15px; }
+  .code { font-size: 40px; font-weight: 700; letter-spacing: 8px; font-family: ui-monospace, Menlo, monospace; margin: 10px 0; }
+  .outcome { font-size: 22px; font-weight: 700; }
+  .outcome.ok { color: var(--ok); } .outcome.err { color: var(--err); }
+  .pulse { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); margin: 14px auto 0;
+           animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.1); } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+  .pin { font-size: 28px; text-align: center; letter-spacing: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>FacePay</h1>
+    <span class="sub" id="merchant-name">Mijoz ekrani</span>
+  </header>
+
+  <!-- Birinchi marta: qurilmani ro'yxatdan o'tkazish (bank / admin) -->
+  <section id="setup" hidden>
+    <h2>Mijoz ekranini ro'yxatdan o'tkazish</h2>
+    <p class="muted">Kamerali qurilma (planshet yoki telefon) mijozga qaratib qo'yiladi. Bir marta bajariladi. Yopiq kalit shu qurilmada qoladi va uni eksport qilib bo'lmaydi.</p>
+    <label for="st-name">Do'kon / bekat nomi</label>
+    <input id="st-name" value="Toshkent metropoliteni">
+    <label for="st-admin">Admin kaliti</label>
+    <input id="st-admin" type="password" autocomplete="off">
+    <button class="primary" id="st-btn">Ro'yxatdan o'tkazish</button>
+    <div class="result" id="st-result" hidden></div>
+  </section>
+
+  <div class="cam" id="cam" hidden><video id="video" playsinline muted></video><div class="prompt" id="prompt">Kamera</div></div>
+
+  <!-- Kutish -->
+  <section id="idle" class="screen" hidden>
+    <h2>Xush kelibsiz!</h2>
+    <p class="merchant">Kassir summani kiritishi bilan to'lov shu yerda paydo bo'ladi.</p>
+    <div class="pulse" aria-hidden="true"></div>
+    <div id="pair-box" hidden>
+      <hr>
+      <p class="muted">Kassada shu kodni kiriting (10 daqiqa amal qiladi):</p>
+      <div class="code" id="pair-code"></div>
+    </div>
+    <button class="link" id="pair-btn">Kassani ulash</button>
+  </section>
+
+  <!-- To'lov so'rovi -->
+  <section id="request" class="screen" hidden>
+    <p class="merchant" id="rq-merchant"></p>
+    <div class="big" id="rq-amount"></div>
+    <p class="muted">Summani tekshiring. To'lash uchun tugmani bosing va kameraga qarang.</p>
+    <button class="primary" id="rq-pay">Yuz bilan to'lash</button>
+    <div class="result" id="rq-result" hidden></div>
+  </section>
+
+  <!-- PIN (katta summa) -->
+  <section id="pin-screen" class="screen" hidden>
+    <h2 id="pin-title">PIN kiriting</h2>
+    <p class="muted">PIN'ni faqat siz ko'rasiz, kassir ko'rmaydi.</p>
+    <input id="pin" class="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    <button class="primary" id="pin-btn">Tasdiqlash</button>
+    <div class="result" id="pin-result" hidden></div>
+  </section>
+
+  <!-- Natija -->
+  <section id="done" class="screen" hidden>
+    <div class="outcome" id="done-title"></div>
+    <p class="merchant" id="done-detail"></p>
+  </section>
+
+  <footer><button class="link" id="reset-btn" style="color:var(--muted)">Qurilmani qayta sozlash</button></footer>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+"use strict";
+Camera.attach($("#video"), $("#prompt"));
+const device = Device("ekran");
+let current = null;     // joriy to'lov so'rovi
+let busyFlow = false;   // to'lov jarayonida so'rovlar tekshirilmaydi
+let pendingTx = null;
+
+function screen(name) {
+  for (const id of ["setup", "idle", "request", "pin-screen", "done"]) $("#" + id).hidden = id !== name;
+}
+
+// ---------- Sozlash ----------
+$("#st-btn").onclick = (e) => busy(e.target, async () => {
+  const k = await newDeviceKey();
+  if (!k) return show("#st-result", "err", errText("ed25519"));
+  const H = { "X-Admin-Key": $("#st-admin").value };
+  const name = $("#st-name").value.trim() || "Do'kon";
+  let r = await postJSON("/v1/admin/merchants", { name }, H);
+  if (r.status !== 201) return show("#st-result", "err", errText(codeOf(r)));
+  r = await postJSON("/v1/admin/terminals", { name: `ekran-${name}`.slice(0, 120), merchant_id: r.data.merchant_id,
+                                              public_key_b64: k.pub, role: "payment" }, H);
+  if (r.status !== 201) return show("#st-result", "err", errText(codeOf(r)));
+  await device.save({ id: r.data.terminal_id, name }, k.pair.privateKey);
+  $("#st-admin").value = "";
+  start();
+});
+$("#reset-btn").onclick = () => { if (confirm("Qurilma qayta ro'yxatdan o'tkaziladi. Davom etasizmi?")) device.forget(); };
+device.onForget = () => { Camera.stop(); start(); };
+
+// ---------- Kassani ulash ----------
+$("#pair-btn").onclick = (e) => busy(e.target, async () => {
+  const r = await device.post("/v1/terminal/pairing-code", {});
+  if (r.status !== 200) return alert(errText(codeOf(r)));
+  $("#pair-code").textContent = r.data.code;
+  $("#pair-box").hidden = false;
+  setTimeout(() => { $("#pair-box").hidden = true; }, r.data.expires_in * 1000);
+});
+
+// ---------- So'rovlarni kutish ----------
+async function poll() {
+  if (device.conf() && !busyFlow) {
+    const r = await device.post("/v1/terminal/pending", {});
+    if (r.status === 200) {
+      const rq = r.data.request;
+      if (rq && (!current || current.request_id !== rq.request_id)) {
+        current = rq;
+        $("#rq-merchant").textContent = rq.merchant;
+        $("#rq-amount").textContent = fmt(rq.amount) + " so'm";
+        $("#rq-result").hidden = true;
+        $("#pair-box").hidden = true;
+        screen("request");
+      } else if (!rq && current && $("#done").hidden && $("#pin-screen").hidden) {
+        current = null;          // kassir bekor qildi yoki muddati o'tdi
+        screen("idle");
+      }
+    }
+  }
+  setTimeout(poll, 2000);
+}
+
+// ---------- To'lov ----------
+function finish(kind, title, detail) {
+  Camera.stop();
+  $("#cam").hidden = true;
+  $("#done-title").className = "outcome " + kind;
+  $("#done-title").textContent = title;
+  $("#done-detail").textContent = detail || "";
+  screen("done");
+  setTimeout(() => { current = null; busyFlow = false; screen("idle"); }, 6000);
+}
+
+function handleTx(d) {
+  if (d.status === "approved") {
+    finish("ok", "✓ To'landi", `${fmt(d.amount)} so'm · ${d.funding === "balance" ? "FacePay balansidan" : d.funding}. Rahmat!`);
+  } else if (d.status === "pending_pin") {
+    Camera.stop();
+    $("#cam").hidden = true;
+    pendingTx = d.transaction_id;
+    $("#pin-title").textContent = `${d.customer}, PIN kiriting`;
+    $("#pin-result").hidden = true;
+    screen("pin-screen");
+    $("#pin").focus();
+  } else {
+    finish("err", "✗ Rad etildi", errText(d.reason));
+  }
+}
+
+$("#rq-pay").onclick = (e) => busy(e.target, async () => {
+  if (!current) return;
+  busyFlow = true;
+  $("#rq-result").hidden = true;
+  $("#cam").hidden = false;
+  const rq = current;
+  const r = await Camera.run(() => device.post("/v1/liveness/challenge", {}),
+                             (cap) => device.post(`/v1/terminal/requests/${rq.request_id}/pay`, cap));
+  if (r.status === 200) return handleTx(r.data);
+  // Biometrik tekshiruv o'tmadi — so'rov qaytadan kutish holatida, mijoz qayta urinishi mumkin
+  Camera.stop();
+  $("#cam").hidden = true;
+  busyFlow = false;
+  if (r.status === 409) { current = null; return screen("idle"); }
+  show("#rq-result", "err", errText(codeOf(r)) + " Qayta urinib ko'ring.");
+});
+
+$("#pin-btn").onclick = (e) => busy(e.target, async () => {
+  const r = await device.post(`/v1/payments/${pendingTx}/pin`, { pin: $("#pin").value });
+  $("#pin").value = "";
+  if (r.status === 200) handleTx(r.data);
+  else show("#pin-result", "err", errText(codeOf(r)));
+});
+
+function start() {
+  const c = device.conf();
+  $("#merchant-name").textContent = c ? c.name : "Mijoz ekrani";
+  current = null; busyFlow = false;
+  screen(c ? "idle" : "setup");
+}
+start();
+poll();
+</script>
+</body>
+</html>

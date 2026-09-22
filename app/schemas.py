@@ -92,3 +92,13 @@ class CardIdPhonePinIn(PhonePinIn):
 
 class CardVerifyPortalIn(CardVerifyIn):
     card_id: str = Field(..., max_length=36)
+
+
+class PairIn(BaseModel):
+    code: str = Field(..., pattern=r"^\d{6}$")
+    public_key_b64: str = Field(..., min_length=40, max_length=64)
+    name: str = Field("Kassa", min_length=1, max_length=120)
+
+
+class AmountIn(BaseModel):
+    amount: int = Field(..., gt=0, le=100_000_000)
