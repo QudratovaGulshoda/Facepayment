@@ -5,8 +5,8 @@ PHONE_PATTERN = r"^\+998\d{9}$"
 
 class CaptureIn(BaseModel):
     challenge_id: str
-    frames: list[str] = Field(..., description="base64 JPEG kadrlar", max_length=40)
-    timestamps_ms: list[int] = Field(..., max_length=40)
+    frames: list[str] = Field(..., description="base64 JPEG kadrlar", max_length=60)
+    timestamps_ms: list[int] = Field(..., max_length=60)
 
 
 class EnrollIn(CaptureIn):

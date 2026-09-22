@@ -149,6 +149,11 @@ const MESSAGES = {
   yuz_tanilmadi: "Yuz tanilmadi. Ro'yxatdan o'tganmisiz?",
   noaniq_moslik: "Kim to'layotgani aniq emas (o'xshash odam bor). PIN yoki boshqa usul bilan to'lang.",
   liveness_faol: "Harakatlar to'g'ri bajarilmadi. Ko'rsatmalarga amal qilib, qayta urining.",
+  "liveness_faol:bajarilmadi:turn_left": "Boshingizni chapga burganingiz aniqlanmadi. Boshingizni aniqroq (yelkangiz tomon) buring.",
+  "liveness_faol:bajarilmadi:turn_right": "Boshingizni o'ngga burganingiz aniqlanmadi. Boshingizni aniqroq (yelkangiz tomon) buring.",
+  "liveness_faol:bajarilmadi:blink": "Ko'z qisish aniqlanmadi. Ko'zingizni to'liq yumib, keyin oching.",
+  "liveness_faol:bajarilmadi:open_mouth": "Og'iz ochish aniqlanmadi. Og'zingizni kengroq oching.",
+  "liveness_faol:boshida_togri_qaramadi": "Boshida kameraga to'g'ri qarang.",
   liveness_passiv: "Tirik odam ekanligi tasdiqlanmadi (rasm yoki ekran bo'lishi mumkin).",
   kadrlarda_turli_shaxs: "Kadrlarda turli odamlar aniqlandi.",
   bir_nechta_yuz: "Kadrda bir nechta yuz bor. Yolg'iz turing.",
@@ -261,22 +266,23 @@ async function startCamera() {
   promptEl.textContent = "Tayyor";
 }
 async function captureSequence(instructions) {
-  // Kadrlar xom (ko'zgu emas) holda yuboriladi — server shunga kalibrlangan
-  const plan = ["Kameraga to'g'ri qarang", ...instructions, "Kameraga to'g'ri qarang"];
-  const perStep = 2000, maxFrames = 38;
-  const interval = Math.max(130, (perStep * plan.length) / maxFrames);
+  // Kadrlar xom (ko'zgu emas) holda yuboriladi — server shunga kalibrlangan.
+  // Harakatlar uchun 2.5 s, boshida/oxirida 1.2 s; ~7-8 kadr/s — ko'z qisish ikki kadr orasida qolib ketmasin
+  const plan = [["Kameraga to'g'ri qarang", 1200], ...instructions.map((t) => [t, 2500]), ["Kameraga to'g'ri qarang", 1200]];
+  const total = plan.reduce((a, [, ms]) => a + ms, 0), maxFrames = 56;
+  const interval = Math.max(110, total / maxFrames);
   const scale = Math.min(1, 640 / video.videoWidth);
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
   const ctx = canvas.getContext("2d");
   const frames = [], timestamps_ms = [];
-  for (const text of plan) {
+  for (const [text, ms] of plan) {
     promptEl.textContent = text;
-    const end = performance.now() + perStep;
+    const end = performance.now() + ms;
     while (performance.now() < end) {
       if (frames.length < maxFrames) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        frames.push(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
+        frames.push(canvas.toDataURL("image/jpeg", 0.8).split(",")[1]);
         timestamps_ms.push(Date.now());
       }
       await sleep(interval);

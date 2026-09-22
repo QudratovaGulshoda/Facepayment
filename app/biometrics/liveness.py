@@ -70,6 +70,8 @@ class FrameObs:
     yaw: float
     ear: float | None
     mar: float | None
+    blink: float | None = None   # MediaPipe blendshape: max(eyeBlinkLeft, eyeBlinkRight), 0..1
+    jaw: float | None = None     # MediaPipe blendshape: jawOpen, 0..1
 
 
 @dataclass
@@ -77,6 +79,37 @@ class ActiveResult:
     passed: bool
     completed: list[str] = field(default_factory=list)
     reason: str | None = None
+    stats: dict = field(default_factory=dict)  # diagnostika uchun (faqat sonlar, shaxsiy ma'lumot yo'q)
+
+
+BLINK_BS_CLOSED = 0.45
+BLINK_BS_OPEN = 0.30
+JAW_OPEN_BS = 0.35
+
+
+def _is_closed(f: FrameObs, ear_open: float | None) -> bool:
+    if f.blink is not None and f.blink > BLINK_BS_CLOSED:
+        return True
+    return f.ear is not None and ear_open is not None and f.ear < BLINK_CLOSED_RATIO * ear_open
+
+
+def _is_open(f: FrameObs, ear_open: float | None) -> bool:
+    if f.blink is not None:
+        return f.blink < BLINK_BS_OPEN
+    return f.ear is not None and ear_open is not None and f.ear > BLINK_OPEN_RATIO * ear_open
+
+
+def _stats(frames: list[FrameObs], base_yaw: float) -> dict:
+    rel = [(f.yaw - base_yaw) * YAW_SIGN for f in frames]
+    pick = lambda xs: [round(x, 3) for x in xs if x is not None]  # noqa: E731
+    ears, mars, blinks, jaws = (pick([getattr(f, a) for f in frames]) for a in ("ear", "mar", "blink", "jaw"))
+    return {
+        "n": len(frames), "base_yaw": round(base_yaw, 1),
+        "rel_yaw_min": round(min(rel), 1), "rel_yaw_max": round(max(rel), 1),
+        "ear_min": min(ears, default=None), "ear_max": max(ears, default=None),
+        "mar_max": max(mars, default=None), "blink_max": max(blinks, default=None),
+        "jaw_max": max(jaws, default=None),
+    }
 
 
 def verify_active(steps: list[str], frames: list[FrameObs]) -> ActiveResult:
@@ -89,9 +122,12 @@ def verify_active(steps: list[str], frames: list[FrameObs]) -> ActiveResult:
     if duration < 800 or duration > 30_000:
         return ActiveResult(False, reason="davomiylik_notogri")
 
-    # Boshlanishida yuz to'g'ridan qarashi kerak
-    if abs(frames[0].yaw) > FRONTAL_DEG * 1.5:
-        return ActiveResult(False, reason="boshida_togri_qaramadi")
+    # Boshlang'ich holat: kamera har doim ham yuzning ro'parasida bo'lmaydi (noutbuk, turniket
+    # balandligi). Burilish shu holatga NISBATAN o'lchanadi.
+    base_yaw = float(np.median([f.yaw for f in frames[:3]]))
+    stats = _stats(frames, base_yaw)
+    if abs(base_yaw) > 25:
+        return ActiveResult(False, reason="boshida_togri_qaramadi", stats=stats)
 
     ears = [f.ear for f in frames if f.ear is not None]
     ear_open = float(np.percentile(ears, 80)) if ears else None
@@ -104,28 +140,29 @@ def verify_active(steps: list[str], frames: list[FrameObs]) -> ActiveResult:
         while i < len(frames):
             f = frames[i]
             i += 1
-            yaw = f.yaw * YAW_SIGN
+            yaw = (f.yaw - base_yaw) * YAW_SIGN
             if step == "turn_left" and yaw > TURN_DEG:
                 found = True
             elif step == "turn_right" and yaw < -TURN_DEG:
                 found = True
-            elif step == "open_mouth" and f.mar is not None and f.mar > MOUTH_OPEN_MAR:
+            elif step == "open_mouth" and ((f.jaw is not None and f.jaw > JAW_OPEN_BS)
+                                           or (f.mar is not None and f.mar > MOUTH_OPEN_MAR)):
                 found = True
-            elif step == "blink" and f.ear is not None and ear_open:
-                if f.ear < BLINK_CLOSED_RATIO * ear_open:
+            elif step == "blink":
+                if _is_closed(f, ear_open):
                     eye_closed_seen = True
-                elif eye_closed_seen and f.ear > BLINK_OPEN_RATIO * ear_open:
+                elif eye_closed_seen and _is_open(f, ear_open):
                     found = True  # yopildi va qayta ochildi — haqiqiy ko'z qisish
             if found:
                 break
         if not found:
-            return ActiveResult(False, completed, reason=f"bajarilmadi:{step}")
+            return ActiveResult(False, completed, reason=f"bajarilmadi:{step}", stats=stats)
         completed.append(step)
-        # Keyingi harakatdan oldin yana old tomonga qaytishini kutamiz (bosh harakatlari uchun)
+        # Keyingi harakatdan oldin boshlang'ich holatga qaytishini kutamiz (bosh harakatlari uchun)
         if step in HEAD_ACTIONS:
-            while i < len(frames) and abs(frames[i].yaw) > FRONTAL_DEG:
+            while i < len(frames) and abs(frames[i].yaw - base_yaw) > FRONTAL_DEG:
                 i += 1
-    return ActiveResult(True, completed)
+    return ActiveResult(True, completed, stats=stats)
 
 
 # ---------------- Passiv liveness ----------------

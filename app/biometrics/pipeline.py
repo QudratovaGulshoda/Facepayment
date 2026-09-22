@@ -11,6 +11,7 @@ Qadamlar:
 from __future__ import annotations
 
 import base64
+import logging
 from dataclasses import dataclass, field
 
 import cv2
@@ -22,8 +23,10 @@ from app.biometrics.quality import assess, select_primary_face
 from app.config import get_settings
 from app.security.template_protection import normalize
 
+log = logging.getLogger("facepay.pipeline")
+
 MAX_FRAME_BYTES = 400_000
-MAX_FRAMES = 40
+MAX_FRAMES = 60
 # Bir odamning turli burchakdagi kadrlari orasida ArcFace o'xshashligi odatda 0.5-0.9,
 # turli odamlar orasida 0-0.25. Har bir JUFT kadr tekshiriladi.
 IDENTITY_CONSISTENCY_MIN = 0.35
@@ -89,9 +92,15 @@ def process_capture(frames_b64: list[str], timestamps_ms: list[int], challenge_s
         faces.append(face)
 
     # 3. Faol liveness
-    obs = [FrameObs(ts, f.yaw, f.ear, f.mar) for ts, f in zip(timestamps_ms, faces)]
+    obs = []
+    for ts, f in zip(timestamps_ms, faces):
+        bs = f.extra.get("blendshapes") or {}
+        blink = max(bs.get("eyeBlinkLeft", 0.0), bs.get("eyeBlinkRight", 0.0)) if bs else None
+        obs.append(FrameObs(ts, f.yaw, f.ear, f.mar, blink, bs.get("jawOpen") if bs else None))
     active = verify_active(challenge_steps, obs)
     if not active.passed:
+        # Diagnostika: faqat sonlar (burilish burchagi, ko'z/og'iz ko'rsatkichlari) — shaxsiy ma'lumot yo'q
+        log.warning("liveness_faol rad: steps=%s reason=%s stats=%s", challenge_steps, active.reason, active.stats)
         raise BiometricError(f"liveness_faol:{active.reason}")
 
     # 4. Shaxs izchilligi: HAR BIR juft kadr bir odamga tegishli bo'lishi kerak.

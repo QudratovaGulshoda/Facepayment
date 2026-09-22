@@ -176,3 +176,23 @@ def test_reenrollment_recommendation():
     assert needs_reenrollment([], now - timedelta(days=4 * 365), now)
     assert needs_reenrollment([0.48] * 15, now - timedelta(days=100), now)
     assert not needs_reenrollment([0.7] * 15, now - timedelta(days=100), now)
+
+
+def test_turn_measured_relative_to_starting_pose():
+    """Kamera yon tomonda (masalan, boshlang'ich yaw = -15): burilish shunga nisbatan o'lchanadi."""
+    shifted = [FrameObs(f.ts_ms, f.yaw - 15, f.ear, f.mar) for f in frames_for(["turn_left", "turn_right"])]
+    assert verify_active(["turn_left", "turn_right"], shifted).passed
+
+
+def test_blink_detected_from_blendshapes():
+    """EAR o'zgarmasa ham (past kadr sifati) MediaPipe eyeBlink ko'rsatkichi bo'yicha aniqlanadi."""
+    seq = [FrameObs(1000 + k * 130, 0, 0.3, 0.1, blink=b, jaw=0.05)
+           for k, b in enumerate([0.1, 0.1, 0.1, 0.1, 0.7, 0.1, 0.1, 0.1])]
+    assert verify_active(["blink"], seq).passed
+    no_blink = [FrameObs(1000 + k * 130, 0, 0.3, 0.1, blink=0.1, jaw=0.05) for k in range(8)]
+    assert not verify_active(["blink"], no_blink).passed
+
+
+def test_failed_liveness_reports_stats():
+    r = verify_active(["turn_left"], [FrameObs(1000 + k * 150, 3.0, 0.3, 0.1) for k in range(10)])
+    assert not r.passed and r.stats["rel_yaw_max"] == 0.0 and r.stats["n"] == 10
