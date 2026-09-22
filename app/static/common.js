@@ -51,7 +51,13 @@ const MESSAGES = {
   imzo_xatosi: "So'rov imzosi xato. Qurilma soatini tekshiring.",
   juda_kop_sorov: "Juda ko'p so'rov. Bir daqiqa kuting.",
   admin_emas: "Admin kaliti noto'g'ri.",
-  kamera: "Kameraga ruxsat berilmadi yoki kamera topilmadi.",
+  kamera: "Kamera ishga tushmadi. Sahifani yangilab, qayta urining.",
+  kamera_ruxsat: "Kameraga ruxsat berilmagan. Manzil satridagi 🔒 belgisini bosing → «Ruxsatlar» → Kamera → «Ruxsat berish», keyin sahifani yangilang.",
+  kamera_ilova_ichida: "Bu ilova ichidagi brauzer kamerani bermaydi. Sahifani Chrome (yoki Safari) brauzerida oching: ⋮ tugmasi → «Brauzerda ochish».",
+  kamera_brauzer: "Bu brauzer kamerani qo'llamaydi. Chrome yoki Safari'da oching.",
+  kamera_https: "Kamera faqat https:// manzilda ishlaydi.",
+  kamera_yoq: "Qurilmada old kamera topilmadi.",
+  kamera_band: "Kamerani boshqa ilova ishlatayapti. Kamera, video qo'ng'iroq ilovalarini yoping va qayta urining.",
   ed25519: "Brauzeringiz eskirgan (Ed25519 yo'q). Chrome, Safari yoki Firefox'ning yangi versiyasini oching.",
   tarmoq: "Server bilan aloqa yo'q. Internetni tekshiring va qayta urining.",
 };
@@ -112,6 +118,37 @@ function remember(key, value) { try { localStorage.setItem(key, value); } catch 
 function recall(key) { try { return localStorage.getItem(key) || ""; } catch { return ""; } }
 
 // ---------- Kamera va liveness kadrlari ----------
+// Telegram, Instagram, Facebook va boshqa ilovalar ichidagi brauzer (Android WebView) ko'pincha kamerani bermaydi
+const IN_APP = /; wv\)|Telegram|Instagram|FBAN|FBAV|FB_IAB|Line\/|MicroMessenger|OKApp/i.test(navigator.userAgent);
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+
+function cameraError(e) {
+  if (e && e.name === "NoMediaDevices") return IN_APP ? "kamera_ilova_ichida" : (window.isSecureContext ? "kamera_brauzer" : "kamera_https");
+  if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) return IN_APP ? "kamera_ilova_ichida" : "kamera_ruxsat";
+  if (e && (e.name === "NotFoundError" || e.name === "OverconstrainedError")) return "kamera_yoq";
+  if (e && (e.name === "NotReadableError" || e.name === "AbortError")) return "kamera_band";
+  return IN_APP ? "kamera_ilova_ichida" : "kamera";
+}
+
+function chromeIntentUrl() {
+  return `intent://${location.host}${location.pathname}${location.search}#Intent;scheme=https;package=com.android.chrome;end`;
+}
+
+// Ilova ichida ochilgan bo'lsa, sahifa tepasida "Brauzerda ochish" ogohlantirishi
+function inAppBanner() {
+  if (!IN_APP) return;
+  const div = document.createElement("div");
+  div.className = "result warn";
+  div.style.margin = "0 0 12px";
+  div.innerHTML = "<b>Kamera ishlashi uchun sahifani brauzerda oching.</b><br>" +
+    "Siz uni ilova (Telegram, Instagram…) ichida ochgansiz — u kamerani bermaydi. " +
+    (IS_ANDROID ? "<br><a id=\"open-chrome\" style=\"color:inherit;font-weight:700\">Chrome'da ochish →</a>"
+                : "<br>Yuqoridagi ⋯ tugmasi → «Brauzerda ochish» / «Open in Safari».");
+  document.querySelector("main").prepend(div);
+  const a = div.querySelector("#open-chrome");
+  if (a) a.href = chromeIntentUrl();
+}
+document.addEventListener("DOMContentLoaded", inAppBanner);
 const Camera = {
   stream: null,
   video: null,
@@ -121,8 +158,17 @@ const Camera = {
 
   async start() {
     if (this.stream) return;
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: false,
-      video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } });
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw Object.assign(new Error("no mediaDevices"), { name: "NoMediaDevices" });
+    }
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: false,
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } });
+    } catch (e) {
+      // Ba'zi telefonlar aniq talablarni (old kamera, o'lcham) qo'llamaydi — oddiy so'rov bilan qayta urinamiz
+      if (e.name !== "OverconstrainedError" && e.name !== "NotFoundError") throw e;
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+    }
     this.video.srcObject = this.stream;
     await this.video.play();
     this.prompt.textContent = "Tayyor";
@@ -165,7 +211,7 @@ const Camera = {
 
   // getChallenge() -> {status, data}; submit(capture) -> {status, data}
   async run(getChallenge, submit) {
-    try { await this.start(); } catch { return { status: 0, data: { error: "kamera" } }; }
+    try { await this.start(); } catch (e) { return { status: 0, data: { error: cameraError(e) } }; }
     const ch = await getChallenge();
     if (ch.status !== 200) return ch;
     const cap = await this.capture(ch.data.instructions);
