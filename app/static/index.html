@@ -80,7 +80,7 @@
     <input id="en-phone" type="tel" placeholder="+998901234567">
     <label for="en-name">Ism familiya</label>
     <input id="en-name" autocomplete="name">
-    <label for="en-pin">Yangi PIN (4–6 raqam)</label>
+    <label for="en-pin">Yangi PIN (4–6 raqam, o'zingiz o'ylab toping va eslab qoling)</label>
     <input id="en-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
     <div class="check"><input type="checkbox" id="en-consent">
       <label for="en-consent" style="margin:0">Yuz shablonim shifrlangan holda saqlanishiga roziman. Rasmim saqlanmaydi, ma'lumotlarimni istalgan vaqtda o'chirishim mumkin.</label></div>
@@ -89,15 +89,16 @@
   </section>
 
   <section id="tab-card" hidden>
+    <p class="muted" style="margin-top:0">Avval <b>Ro'yxatdan o'tish</b> bo'limida ro'yxatdan o'ting. FacePay PIN — o'sha yerda o'zingiz o'ylab topgan PIN.</p>
     <label for="cd-phone">Telefon</label>
     <input id="cd-phone" type="tel" placeholder="+998901234567">
     <label for="cd-pin">FacePay PIN</label>
     <input id="cd-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
     <label for="cd-number">Karta raqami (Uzcard / Humo)</label>
-    <input id="cd-number" inputmode="numeric" autocomplete="off" placeholder="8600 1234 5678 9012">
+    <input id="cd-number" inputmode="numeric" autocomplete="off" placeholder="16 ta raqam">
     <label for="cd-exp">Amal qilish muddati (OOYY)</label>
-    <input id="cd-exp" inputmode="numeric" maxlength="4" placeholder="0829">
-    <p class="muted">Karta raqami serverda saqlanmaydi. Demo rejimda SMS kod: 666666.</p>
+    <input id="cd-exp" inputmode="numeric" maxlength="4" placeholder="masalan 0829">
+    <p class="muted">Karta raqami serverda saqlanmaydi. Demo rejimda pul yechilmaydi. Sinov kartasi: 8600 1234 5678 9012, SMS kod: 666666.</p>
     <button class="primary" id="cd-btn">Kartani ulash</button>
     <div id="cd-verify" hidden>
       <label for="cd-code">SMS kod</label>
@@ -185,6 +186,17 @@ const MESSAGES = {
   ed25519: "Brauzeringiz eskirgan (Ed25519 yo'q). Chrome, Safari yoki Firefox'ning yangi versiyasini oching.",
 };
 
+const FIELD_ERRORS = {
+  pin: "PIN 4–6 ta raqamdan iborat bo'lishi kerak (oddiy PIN, masalan 1234 yoki 1111, qabul qilinmaydi).",
+  number: "Karta raqamini to'liq kiriting (16 ta raqam).",
+  expire: "Amal qilish muddatini OOYY ko'rinishida kiriting (masalan 0829).",
+  phone: "Telefonni +998901234567 ko'rinishida kiriting.",
+  full_name: "Ism familiyani kiriting.",
+  code: "SMS kodni kiriting.",
+  amount: "Summani kiriting.",
+  label: "Nomini kiriting.",
+};
+
 function errText(code) {
   if (!code) return "Noma'lum xato";
   const base = String(code).split(":")[0];
@@ -194,7 +206,7 @@ function codeOf(res) {
   const d = res.data || {};
   if (d.error) return d.error;
   if (typeof d.detail === "string") return d.detail;
-  if (Array.isArray(d.detail)) return "Maydonlar noto'g'ri: " + d.detail.map((e) => e.loc.slice(-1)[0]).join(", ");
+  if (Array.isArray(d.detail)) return d.detail.map((e) => FIELD_ERRORS[e.loc.slice(-1)[0]] || e.loc.slice(-1)[0]).join(" ");
   return "HTTP " + res.status;
 }
 function show(id, kind, text) { const el = $(id); el.hidden = false; el.className = "result " + kind; el.textContent = text; }
@@ -325,8 +337,8 @@ let pendingCard = null;
 $("#cd-btn").onclick = (e) => busy(e.target, async () => {
   const r = await signedPost("enroll", "/v1/cards", { phone: $("#cd-phone").value.replace(/\s/g, ""), pin: $("#cd-pin").value,
     number: $("#cd-number").value.replace(/\D/g, ""), expire: $("#cd-exp").value });
-  $("#cd-pin").value = ""; $("#cd-number").value = "";
-  if (r.status === 201) { pendingCard = r.data.card_id; $("#cd-verify").hidden = false;
+  $("#cd-pin").value = "";
+  if (r.status === 201) { $("#cd-number").value = ""; pendingCard = r.data.card_id; $("#cd-verify").hidden = false;
     show("#cd-result", "warn", `${r.data.masked}: SMS kod ${r.data.sms_sent_to} raqamiga yuborildi.`); }
   else show("#cd-result", "err", errText(codeOf(r)));
 });
