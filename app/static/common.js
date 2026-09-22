@@ -52,7 +52,7 @@ const MESSAGES = {
   juda_kop_sorov: "Juda ko'p so'rov. Bir daqiqa kuting.",
   admin_emas: "Admin kaliti noto'g'ri.",
   kamera: "Kamera ishga tushmadi. Sahifani yangilab, qayta urining.",
-  kamera_ruxsat: "Kameraga ruxsat berilmagan. Manzil satridagi 🔒 belgisini bosing → «Ruxsatlar» → Kamera → «Ruxsat berish», keyin sahifani yangilang.",
+  kamera_ruxsat: "Kameraga ruxsat berilmagan. 1) Telegram ichida ochilgan bo'lsa: yuqori o'ngdagi ⋮ → «Chrome'da ochish». 2) Kamera so'ralganda «Ruxsat berish» ni bosing. 3) So'ramasa: Chrome ⋮ → Sozlamalar → Sayt sozlamalari → Kamera → shu sayt → «Ruxsat berish». 4) Baribir ishlamasa: telefon Sozlamalari → Ilovalar → Chrome → Ruxsatlar → Kamera.",
   kamera_ilova_ichida: "Bu ilova ichidagi brauzer kamerani bermaydi. Sahifani Chrome (yoki Safari) brauzerida oching: ⋮ tugmasi → «Brauzerda ochish».",
   kamera_brauzer: "Bu brauzer kamerani qo'llamaydi. Chrome yoki Safari'da oching.",
   kamera_https: "Kamera faqat https:// manzilda ishlaydi.",
