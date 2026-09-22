@@ -12,7 +12,9 @@ ENV HOME=/home/user PATH=/home/user/.local/bin:$PATH PYTHONUNBUFFERED=1
 WORKDIR /home/user/app
 
 COPY --chown=user requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir --user -r requirements.txt \
+    && pip uninstall -y opencv-python opencv-python-headless \
+    && pip install --no-cache-dir --user --force-reinstall --no-deps opencv-contrib-python==5.0.0.93
 
 # Modellarni build vaqtida yuklab olamiz — server tez ishga tushadi
 COPY --chown=user scripts/download_models.sh scripts/

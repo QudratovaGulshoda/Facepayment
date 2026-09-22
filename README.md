@@ -134,7 +134,23 @@ Demo kartalar:
 - Ishonchli moslikda yangi ko'rinish (o'xshashlik 0.60–0.80) avtomatik ravishda alohida shablon bo'lib qo'shiladi. Bir odamda ko'pi bilan 6 ta shablon saqlanadi.
 - Makiyaj bilan boshqa odamga o'xshashga urinish margin qoidasi bilan to'xtatiladi: kim to'layotgani aniq bo'lmasa, to'lov rad etiladi.
 
-## Internetga joylash (bepul, Hugging Face Spaces)
+## Internetda ishlaydigan versiya
+
+**https://qudratovagulshoda--facepay-web.modal.run**: brauzer terminali (telefon yoki noutbukda oching). API hujjatlari: `/docs`
+
+[Modal](https://modal.com) serverless platformasida joylashgan. Oyiga $30 bepul kredit beriladi, karta talab qilinmaydi.
+- Server faqat so'rov kelganda yonadi va 10 daqiqa tinch turgandan keyin o'chadi. Shuning uchun birinchi ochilish 30–60 soniya davom etishi mumkin, keyingilari tez ishlaydi.
+- Baza Modal Volume'da saqlanadi: server o'chib-yonganda ham ma'lumotlar yo'qolmaydi.
+- Shifrlash kalitlari Modal Secret'da turadi, kodda yo'q.
+
+Qayta joylash (kod o'zgargandan keyin):
+
+```bash
+.venv/bin/modal token new                  # faqat birinchi marta
+.venv/bin/python scripts/deploy_modal.py
+```
+
+## Muqobil: Hugging Face Spaces (PRO obuna talab qilinadi)
 
 ```bash
 .venv/bin/python scripts/deploy_hf.py          # Hugging Face token so'raladi
@@ -152,7 +168,7 @@ Taxminan 15 daqiqada `https://<login>-facepay.hf.space` manzilida **brauzer term
 
 | Savol | Javob |
 |---|---|
-| Bepulmi? | Ha: CPU basic, 2 vCPU, 16 GB RAM |
+| Bepulmi? | Yo'q: Docker Space'lar uchun 2026-yildan PRO obuna kerak |
 | Doim ishlaydimi? | 48 soat hech kim kirmasa "uxlaydi". Keyingi kirishda 1–2 daqiqada uyg'onadi |
 | Ma'lumotlar saqlanadimi? | Standart holatda SQLite ishlatiladi va Space qayta ishga tushganda tozalanadi. Doimiy saqlash uchun bepul Neon Postgres ulang: `deploy_hf.py --database-url "postgresql://..."` |
 | Qonunchilik | Hugging Face serverlari O'zbekistonda emas. Demo uchun faqat test ma'lumotlaridan foydalaning, real foydalanuvchilar uchun mahalliy server kerak |
