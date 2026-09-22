@@ -3,433 +3,256 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FacePay terminal</title>
-<style>
-  :root {
-    --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #5d6470; --line: #e2e5ea;
-    --accent: #0a7c5a; --accent-text: #ffffff; --err: #b3261e; --ok: #0a7c5a; --warn: #8a5a00;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #111317; --card: #1a1d23; --text: #eceef2; --muted: #9aa1ad; --line: #2c313a;
-            --accent: #2fb487; --accent-text: #0b1210; --err: #ff8a80; --ok: #58d6a7; --warn: #f0c060; }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 560px; margin: 0 auto; padding: 16px; }
-  h1 { font-size: 22px; margin: 4px 0 2px; }
-  .sub { color: var(--muted); margin: 0 0 14px; font-size: 14px; }
-  nav { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 12px; }
-  nav button { flex: none; border: 1px solid var(--line); background: var(--card); color: var(--text);
-               padding: 8px 12px; border-radius: 999px; font-size: 14px; cursor: pointer; }
-  nav button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
-  section[hidden] { display: none; }
-  label { display: block; font-size: 14px; color: var(--muted); margin: 10px 0 4px; }
-  input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px;
-          background: var(--bg); color: var(--text); font-size: 16px; }
-  .check { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; font-size: 14px; color: var(--muted); }
-  .check input { width: auto; margin-top: 3px; }
-  button.primary { width: 100%; margin-top: 14px; padding: 13px; border: 0; border-radius: 10px;
-                   background: var(--accent); color: var(--accent-text); font-size: 16px; font-weight: 600; cursor: pointer; }
-  button.primary:disabled { opacity: .5; cursor: default; }
-  .cam { position: relative; background: #000; border-radius: 14px; overflow: hidden; aspect-ratio: 4 / 3; margin-bottom: 12px; }
-  .cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-  .prompt { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px; text-align: center;
-            background: linear-gradient(transparent, rgba(0,0,0,.75)); color: #fff; font-size: 20px; font-weight: 600; }
-  .result { margin-top: 12px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 15px; }
-  .result.ok { border-color: var(--ok); color: var(--ok); }
-  .result.err { border-color: var(--err); color: var(--err); }
-  .result.warn { border-color: var(--warn); color: var(--warn); }
-  .muted { color: var(--muted); font-size: 13px; }
-  .row { display: flex; gap: 8px; } .row > * { flex: 1; }
-  ul.cards { list-style: none; padding: 0; margin: 10px 0 0; }
-  ul.cards li { padding: 8px 0; border-top: 1px solid var(--line); font-family: ui-monospace, monospace; }
-</style>
+<title>FacePay kabinet</title>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <main>
-  <h1>FacePay</h1>
-  <p class="sub">Yuz orqali to'lov terminali</p>
+  <header>
+    <h1>FacePay</h1>
+    <span class="sub">Shaxsiy kabinet</span>
+  </header>
 
-  <div class="cam"><video id="video" playsinline muted></video><div class="prompt" id="prompt">Kamera yoqilmagan</div></div>
+  <div class="cam" id="cam" hidden><video id="video" playsinline muted></video><div class="prompt" id="prompt">Kamera</div></div>
 
   <nav role="tablist">
-    <button data-tab="pay" aria-selected="true">To'lov</button>
-    <button data-tab="enroll">Ro'yxatdan o'tish</button>
-    <button data-tab="card">Karta</button>
-    <button data-tab="variant">Makiyaj</button>
-    <button data-tab="setup">Sozlash</button>
+    <button data-tab="enroll" aria-selected="true">Ro'yxatdan o'tish</button>
+    <button data-tab="cards">Kartalarim</button>
+    <button data-tab="history">To'lovlarim</button>
+    <button data-tab="settings">Sozlamalar</button>
   </nav>
 
-  <section id="tab-pay">
-    <label for="pay-amount">Summa (so'm)</label>
-    <input id="pay-amount" type="number" inputmode="numeric" value="1700" min="1">
-    <p class="muted">200 000 so'mgacha — faqat yuz. Undan ko'p bo'lsa PIN so'raladi.</p>
-    <button class="primary" id="pay-btn">Yuz bilan to'lash</button>
-    <div id="pay-pin" hidden>
-      <label for="pay-pin-input">PIN</label>
-      <input id="pay-pin-input" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
-      <button class="primary" id="pay-pin-btn">Tasdiqlash</button>
-    </div>
-    <div class="result" id="pay-result" hidden></div>
-  </section>
-
-  <section id="tab-enroll" hidden>
+  <!-- Ro'yxatdan o'tish -->
+  <section id="tab-enroll">
+    <h2>Yuz bilan to'lashni yoqish</h2>
+    <p class="muted">Bir marta ro'yxatdan o'tasiz, keyin metro va do'konlarda karta yoki telefonsiz, faqat yuz bilan to'laysiz.</p>
     <label for="en-phone">Telefon</label>
-    <input id="en-phone" type="tel" placeholder="+998901234567">
+    <input id="en-phone" type="tel" placeholder="+998901234567" autocomplete="tel">
     <label for="en-name">Ism familiya</label>
     <input id="en-name" autocomplete="name">
-    <label for="en-pin">Yangi PIN (4–6 raqam, o'zingiz o'ylab toping va eslab qoling)</label>
+    <label for="en-pin">PIN o'ylab toping (4–6 raqam)</label>
     <input id="en-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+    <p class="muted">PIN katta summalarni tasdiqlash va kartani boshqarish uchun kerak. Uni eslab qoling.</p>
     <div class="check"><input type="checkbox" id="en-consent">
       <label for="en-consent" style="margin:0">Yuz shablonim shifrlangan holda saqlanishiga roziman. Rasmim saqlanmaydi, ma'lumotlarimni istalgan vaqtda o'chirishim mumkin.</label></div>
     <button class="primary" id="en-btn">Ro'yxatdan o'tish</button>
     <div class="result" id="en-result" hidden></div>
-    <hr style="border:0;border-top:1px solid var(--line);margin:18px 0 6px">
-    <p class="muted"><b>PIN esdan chiqdimi?</b> Telefon va yangi PIN'ni kiriting — shaxsingiz yuzingiz orqali tasdiqlanadi.</p>
-    <label for="rp-phone">Telefon</label>
-    <input id="rp-phone" type="tel" placeholder="+998901234567">
-    <label for="rp-pin">Yangi PIN</label>
-    <input id="rp-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
-    <button class="primary" id="rp-btn" style="background:transparent;color:var(--accent);border:1px solid var(--accent)">Yuz orqali PIN'ni tiklash</button>
-    <div class="result" id="rp-result" hidden></div>
   </section>
 
-  <section id="tab-card" hidden>
-    <p class="muted" style="margin-top:0">Avval <b>Ro'yxatdan o'tish</b> bo'limida ro'yxatdan o'ting. FacePay PIN — o'sha yerda o'zingiz o'ylab topgan PIN.</p>
+  <!-- Kartalar -->
+  <section id="tab-cards" hidden>
+    <h2>Kartalarim</h2>
+    <p class="muted">To'lovlar asosiy kartangizdan yechiladi.</p>
     <label for="cd-phone">Telefon</label>
-    <input id="cd-phone" type="tel" placeholder="+998901234567">
-    <label for="cd-pin">FacePay PIN</label>
-    <input id="cd-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    <input id="cd-phone" type="tel" placeholder="+998901234567" autocomplete="tel">
+    <label for="cd-pin">PIN</label>
+    <input id="cd-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
+    <button class="secondary" id="cd-list-btn">Kartalarni ko'rsatish</button>
+    <ul class="list" id="cd-list"></ul>
+
+    <hr>
+    <h2>Yangi karta ulash</h2>
     <label for="cd-number">Karta raqami (Uzcard / Humo)</label>
     <input id="cd-number" inputmode="numeric" autocomplete="off" placeholder="16 ta raqam">
     <label for="cd-exp">Amal qilish muddati (OOYY)</label>
     <input id="cd-exp" inputmode="numeric" maxlength="4" placeholder="masalan 0829">
-    <p class="muted">Karta raqami serverda saqlanmaydi. Demo rejimda pul yechilmaydi. Sinov kartasi: 8600 1234 5678 9012, SMS kod: 666666.</p>
-    <button class="primary" id="cd-btn">Kartani ulash</button>
+    <p class="muted">Karta raqami serverda saqlanmaydi. Demo rejimda pul yechilmaydi. Sinov kartasi: 8600 1234 5678 9012.</p>
+    <button class="primary" id="cd-add-btn">Kartani ulash</button>
     <div id="cd-verify" hidden>
       <label for="cd-code">SMS kod</label>
       <input id="cd-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
       <button class="primary" id="cd-code-btn">Tasdiqlash</button>
     </div>
-    <button class="primary" id="cd-list-btn" style="background:transparent;color:var(--accent);border:1px solid var(--accent)">Mening kartalarim</button>
-    <ul class="cards" id="cd-list"></ul>
     <div class="result" id="cd-result" hidden></div>
   </section>
 
-  <section id="tab-variant" hidden>
-    <p class="muted" style="margin-top:0">Kuchli makiyaj, yangi ko'zoynak yoki soqol bilan tanilmayotgan bo'lsangiz, shu ko'rinishda qo'shimcha shablon qo'shing.</p>
-    <label for="va-phone">Telefon</label>
-    <input id="va-phone" type="tel" placeholder="+998901234567">
+  <!-- Tarix -->
+  <section id="tab-history" hidden>
+    <h2>To'lovlarim</h2>
+    <p class="muted">Rad etilgan urinishlar ham ko'rinadi — tanimagan urinishni ko'rsangiz, PIN'ni almashtiring.</p>
+    <label for="hs-phone">Telefon</label>
+    <input id="hs-phone" type="tel" placeholder="+998901234567" autocomplete="tel">
+    <label for="hs-pin">PIN</label>
+    <input id="hs-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
+    <button class="primary" id="hs-btn">Ko'rsatish</button>
+    <ul class="list" id="hs-list"></ul>
+    <div class="result" id="hs-result" hidden></div>
+  </section>
+
+  <!-- Sozlamalar -->
+  <section id="tab-settings" hidden>
+    <h2>PIN esdan chiqdimi?</h2>
+    <p class="muted">Shaxsingiz yuzingiz orqali tasdiqlanadi va yangi PIN o'rnatiladi. Hisob bloklangan bo'lsa, blok ham ochiladi.</p>
+    <label for="st-phone">Telefon</label>
+    <input id="st-phone" type="tel" placeholder="+998901234567" autocomplete="tel">
+    <label for="rp-pin">Yangi PIN</label>
+    <input id="rp-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+    <button class="primary" id="rp-btn">Yuz orqali PIN'ni tiklash</button>
+    <div class="result" id="rp-result" hidden></div>
+
+    <hr>
+    <h2>Makiyaj, ko'zoynak, soqol</h2>
+    <p class="muted">Yangi ko'rinishda tanilmayotgan bo'lsangiz, shu ko'rinishda qo'shimcha shablon qo'shing. Telefon yuqoridagi maydondan olinadi.</p>
     <label for="va-pin">PIN</label>
-    <input id="va-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+    <input id="va-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
     <label for="va-label">Nomi</label>
     <input id="va-label" value="makiyaj" maxlength="32">
-    <button class="primary" id="va-btn">Shablon qo'shish</button>
-    <hr style="border:0;border-top:1px solid var(--line);margin:18px 0 6px">
-    <p class="muted">Barcha ma'lumotlarimni o'chirish (yuz shablonlari, kartalar, ism, telefon):</p>
-    <button class="primary" id="del-btn" style="background:var(--err)">Ma'lumotlarimni o'chirish</button>
+    <button class="secondary" id="va-btn">Shablon qo'shish</button>
     <div class="result" id="va-result" hidden></div>
+
+    <hr>
+    <h2>Ma'lumotlarimni o'chirish</h2>
+    <p class="muted">Yuz shablonlari, kartalar, ism va telefon butunlay o'chiriladi. PIN va yuz bilan tasdiqlanadi.</p>
+    <label for="del-pin">PIN</label>
+    <input id="del-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
+    <button class="danger" id="del-btn">Ma'lumotlarimni o'chirish</button>
+    <div class="result" id="del-result" hidden></div>
   </section>
 
-  <section id="tab-setup" hidden>
-    <p id="setup-state" class="muted" style="margin-top:0"></p>
-    <label for="st-admin">Admin kaliti</label>
-    <input id="st-admin" type="password" autocomplete="off">
-    <p class="muted">Faqat bir marta, qurilmani terminal sifatida ro'yxatdan o'tkazish uchun kerak. Kalit brauzerda saqlanmaydi.</p>
-    <button class="primary" id="st-btn">Qurilmani ro'yxatdan o'tkazish</button>
-    <hr style="border:0;border-top:1px solid var(--line);margin:18px 0 6px">
-    <p class="muted">FacePay balansini to'ldirish (karta ulanmaganlar uchun, admin kaliti bilan):</p>
-    <div class="row"><input id="tp-phone" type="tel" placeholder="+998901234567"><input id="tp-amount" type="number" value="100000"></div>
-    <button class="primary" id="tp-btn">To'ldirish</button>
-    <div class="result" id="st-result" hidden></div>
-  </section>
+  <footer><a href="/kassa">Sotuvchi kassasi →</a></footer>
 </main>
 
+<script src="/static/common.js"></script>
 <script>
 "use strict";
-const $ = (s) => document.querySelector(s);
-const video = $("#video"), promptEl = $("#prompt");
-const enc = new TextEncoder();
+Camera.attach($("#video"), $("#prompt"));
 
-const MESSAGES = {
-  yuz_tanilmadi: "Yuz tanilmadi. Ro'yxatdan o'tganmisiz?",
-  noaniq_moslik: "Kim to'layotgani aniq emas (o'xshash odam bor). PIN yoki boshqa usul bilan to'lang.",
-  liveness_faol: "Harakatlar to'g'ri bajarilmadi. Ko'rsatmalarga amal qilib, qayta urining.",
-  "liveness_faol:bajarilmadi:turn_left": "Boshingizni chapga burganingiz aniqlanmadi. Boshingizni aniqroq (yelkangiz tomon) buring.",
-  "liveness_faol:bajarilmadi:turn_right": "Boshingizni o'ngga burganingiz aniqlanmadi. Boshingizni aniqroq (yelkangiz tomon) buring.",
-  "liveness_faol:bajarilmadi:blink": "Ko'z qisish aniqlanmadi. Ko'zingizni to'liq yumib, keyin oching.",
-  "liveness_faol:bajarilmadi:open_mouth": "Og'iz ochish aniqlanmadi. Og'zingizni kengroq oching.",
-  "liveness_faol:boshida_togri_qaramadi": "Boshida kameraga to'g'ri qarang.",
-  liveness_passiv: "Tirik odam ekanligi tasdiqlanmadi (rasm yoki ekran bo'lishi mumkin).",
-  kadrlarda_turli_shaxs: "Kadrlarda turli odamlar aniqlandi.",
-  bir_nechta_yuz: "Kadrda bir nechta yuz bor. Yolg'iz turing.",
-  yuz_topilmadi: "Yuz topilmadi. Kameraga yaqinroq keling.",
-  yuz_markazda_emas: "Yuzingizni kadr markaziga keltiring.",
-  sifat_past: "Kadr sifati past (yorug'lik yoki xiralik). Yorug' joyda qayta urining.",
-  old_kadrlar_kam: "To'g'ri qaragan kadrlar kam. Boshida va oxirida kameraga to'g'ri qarang.",
-  kadrlar_soni_notogri: "Kadrlar yetarli emas. Qayta urining.",
-  mablag_yetarli_emas: "FacePay balansida mablag' yetarli emas.",
-  kartada_mablag_yetarli_emas: "Kartada mablag' yetarli emas.",
-  kunlik_limit: "Kunlik limitdan oshdi.",
-  pin_notogri: "PIN noto'g'ri.",
-  pin_urinishlar_tugadi: "PIN urinishlari tugadi, to'lov bekor qilindi.",
-  pin_vaqti_tugadi: "PIN kiritish vaqti tugadi.",
-  vaqtincha_bloklangan: "Hisob vaqtincha bloklangan (15 daqiqa).",
-  sinov_yaroqsiz: "Sinov muddati tugadi. Qayta urining.",
-  telefon_royxatda: "Bu telefon allaqachon ro'yxatdan o'tgan.",
-  yuz_allaqachon_royxatda: "Bu yuz allaqachon boshqa hisobga bog'langan.",
-  rozilik_berilmagan: "Rozilik berilmadi.",
-  yuz_mos_emas: "Yuz hisob egasiga mos kelmadi.",
-  boshqa_shaxsga_oxshash: "Bu ko'rinish boshqa foydalanuvchiga juda o'xshash.",
-  topilmadi: "Foydalanuvchi topilmadi.",
-  sms_kod_notogri: "SMS kod noto'g'ri.",
-  sms_urinishlar_tugadi: "SMS urinishlari tugadi. Kartani qaytadan ulang.",
-  karta_raqami_notogri: "Karta raqami noto'g'ri.",
-  faqat_uzcard_humo: "Faqat Uzcard (8600, 5614) va Humo (9860) kartalari.",
-  muddat_notogri: "Amal qilish muddati noto'g'ri (OOYY).",
-  kartalar_soni_limit: "Ko'pi bilan 3 ta karta ulash mumkin.",
-  terminal_nomalum: "Qurilma ro'yxatdan o'tmagan. \"Sozlash\" bo'limiga o'ting.",
-  terminal_sozlanmagan: "Qurilma ro'yxatdan o'tmagan. \"Sozlash\" bo'limiga o'ting.",
-  imzo_xatosi: "So'rov imzosi xato. Qurilma soatini tekshiring.",
-  juda_kop_sorov: "Juda ko'p so'rov. Bir daqiqa kuting.",
-  admin_emas: "Admin kaliti noto'g'ri.",
-  kamera: "Kameraga ruxsat berilmadi yoki kamera topilmadi.",
-  ed25519: "Brauzeringiz eskirgan (Ed25519 yo'q). Chrome, Safari yoki Firefox'ning yangi versiyasini oching.",
-};
+// Telefon raqami faqat shu qurilmada eslab qolinadi (qulaylik uchun)
+const PHONE_FIELDS = ["#en-phone", "#cd-phone", "#hs-phone", "#st-phone"];
+const savedPhone = recall("facepay_phone");
+PHONE_FIELDS.forEach((s) => { $(s).value = savedPhone; $(s).addEventListener("change", () => syncPhone($(s).value)); });
+function syncPhone(v) { PHONE_FIELDS.forEach((s) => ($(s).value = v)); remember("facepay_phone", v); }
 
-const FIELD_ERRORS = {
-  pin: "PIN 4–6 ta raqamdan iborat bo'lishi kerak (oddiy PIN, masalan 1234 yoki 1111, qabul qilinmaydi).",
-  number: "Karta raqamini to'liq kiriting (16 ta raqam).",
-  expire: "Amal qilish muddatini OOYY ko'rinishida kiriting (masalan 0829).",
-  phone: "Telefonni +998901234567 ko'rinishida kiriting.",
-  full_name: "Ism familiyani kiriting.",
-  code: "SMS kodni kiriting.",
-  amount: "Summani kiriting.",
-  label: "Nomini kiriting.",
-};
-
-function errText(code) {
-  if (!code) return "Noma'lum xato";
-  const base = String(code).split(":")[0];
-  return MESSAGES[code] || MESSAGES[base] || code;
-}
-function codeOf(res) {
-  const d = res.data || {};
-  if (d.error) return d.error;
-  if (typeof d.detail === "string") return d.detail;
-  if (Array.isArray(d.detail)) return d.detail.map((e) => FIELD_ERRORS[e.loc.slice(-1)[0]] || e.loc.slice(-1)[0]).join(" ");
-  return "HTTP " + res.status;
-}
-function show(id, kind, text) { const el = $(id); el.hidden = false; el.className = "result " + kind; el.textContent = text; }
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-const b64 = (buf) => { let s = ""; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
-const fmt = (n) => Number(n).toLocaleString("ru-RU").replace(/,/g, " ");
-
-// ---------- Kalitlar (IndexedDB, eksport qilib bo'lmaydigan) ----------
-function idb() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open("facepay", 1);
-    r.onupgradeneeded = () => r.result.createObjectStore("keys");
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-  });
-}
-async function idbPut(k, v) {
-  const db = await idb();
-  return new Promise((res, rej) => { const tx = db.transaction("keys", "readwrite"); tx.objectStore("keys").put(v, k);
-    tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
-}
-async function idbGet(k) {
-  const db = await idb();
-  return new Promise((res, rej) => { const r = db.transaction("keys").objectStore("keys").get(k);
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
-}
-const conf = (role) => { try { return JSON.parse(localStorage.getItem("facepay_" + role)); } catch { return null; } };
-function forget() { try { localStorage.removeItem("facepay_enroll"); localStorage.removeItem("facepay_payment"); } catch {} renderSetup(); }
-
-async function signedPost(role, path, payload) {
-  const c = conf(role), key = await idbGet(role);
-  if (!c || !key) return { status: 0, data: { error: "terminal_sozlanmagan" } };
-  const body = enc.encode(JSON.stringify(payload));
-  const ts = String(Math.floor(Date.now() / 1000));
-  const nonce = hex(crypto.getRandomValues(new Uint8Array(16)));
-  const canon = ["POST", path, ts, nonce, hex(await crypto.subtle.digest("SHA-256", body))].join("\n");
-  const sig = await crypto.subtle.sign({ name: "Ed25519" }, key, enc.encode(canon));
-  const r = await fetch(path, { method: "POST", body, headers: {
-    "Content-Type": "application/json", "X-Terminal-Id": c.id, "X-Timestamp": ts, "X-Nonce": nonce, "X-Signature": b64(sig) } });
-  const data = await r.json().catch(() => ({}));
-  if (r.status === 401 && data.detail === "terminal_nomalum") forget();  // server bazasi yangilangan
-  return { status: r.status, data };
-}
-
-// ---------- Kamera ----------
-let stream = null;
-async function startCamera() {
-  if (stream) return;
-  stream = await navigator.mediaDevices.getUserMedia({ audio: false,
-    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } });
-  video.srcObject = stream; await video.play();
-  promptEl.textContent = "Tayyor";
-}
-async function captureSequence(instructions) {
-  // Kadrlar xom (ko'zgu emas) holda yuboriladi — server shunga kalibrlangan.
-  // Harakatlar uchun 2.5 s, boshida/oxirida 1.2 s; ~7-8 kadr/s — ko'z qisish ikki kadr orasida qolib ketmasin
-  const plan = [["Kameraga to'g'ri qarang", 1200], ...instructions.map((t) => [t, 2500]), ["Kameraga to'g'ri qarang", 1200]];
-  const total = plan.reduce((a, [, ms]) => a + ms, 0), maxFrames = 56;
-  const interval = Math.max(110, total / maxFrames);
-  const scale = Math.min(1, 640 / video.videoWidth);
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
-  const ctx = canvas.getContext("2d");
-  const frames = [], timestamps_ms = [];
-  for (const [text, ms] of plan) {
-    promptEl.textContent = text;
-    const end = performance.now() + ms;
-    while (performance.now() < end) {
-      if (frames.length < maxFrames) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        frames.push(canvas.toDataURL("image/jpeg", 0.8).split(",")[1]);
-        timestamps_ms.push(Date.now());
-      }
-      await sleep(interval);
-    }
-  }
-  promptEl.textContent = "Tekshirilmoqda…";
-  return { frames, timestamps_ms };
-}
-async function withChallenge(role, path, payload) {
-  try { await startCamera(); } catch { return { status: 0, data: { error: "kamera" } }; }
-  const ch = await signedPost(role, "/v1/liveness/challenge", {});
-  if (ch.status !== 200) return ch;
-  const cap = await captureSequence(ch.data.instructions);
-  const res = await signedPost(role, path, { ...payload, challenge_id: ch.data.challenge_id, ...cap });
-  promptEl.textContent = "Tayyor";
+// Yuz bilan bajariladigan amal: kamera faqat shu vaqtda yoqiladi
+async function withFace(path, payload) {
+  $("#cam").hidden = false;
+  $("#cam").scrollIntoView({ behavior: "smooth", block: "start" });
+  const res = await Camera.run(() => postJSON("/v1/portal/challenge", {}),
+                               (cap) => postJSON(path, { ...payload, ...cap }));
+  Camera.stop();
+  $("#cam").hidden = true;
   return res;
 }
-async function busy(btn, fn) { btn.disabled = true; try { await fn(); } catch (e) { console.error(e); alert(String(e)); } finally { btn.disabled = false; } }
-
-// ---------- To'lov ----------
-let pendingTx = null;
-function payOutcome(d) {
-  if (d.status === "approved") {
-    const src = d.funding === "balance" ? "FacePay balansidan" : `kartadan ${d.funding}`;
-    show("#pay-result", "ok", `✓ To'landi: ${fmt(d.amount)} so'm, ${src}. ${d.customer || ""}` +
-      (d.reenroll_recommended ? " Yuzingiz o'zgargan — qayta ro'yxatdan o'tish tavsiya etiladi." : ""));
-  } else if (d.status === "pending_pin") {
-    pendingTx = d.transaction_id; $("#pay-pin").hidden = false; $("#pay-pin-input").focus();
-    show("#pay-result", "warn", `${d.customer}, PIN kiriting (${fmt(d.amount)} so'm).`);
-  } else {
-    show("#pay-result", "err", "✗ Rad etildi: " + errText(d.reason));
-  }
-}
-$("#pay-btn").onclick = (e) => busy(e.target, async () => {
-  $("#pay-pin").hidden = true; $("#pay-result").hidden = true;
-  const r = await withChallenge("payment", "/v1/payments",
-    { amount: parseInt($("#pay-amount").value, 10), idempotency_key: hex(crypto.getRandomValues(new Uint8Array(16))) });
-  r.status === 200 ? payOutcome(r.data) : show("#pay-result", "err", errText(codeOf(r)));
-});
-$("#pay-pin-btn").onclick = (e) => busy(e.target, async () => {
-  const r = await signedPost("payment", `/v1/payments/${pendingTx}/pin`, { pin: $("#pay-pin-input").value });
-  $("#pay-pin-input").value = "";
-  if (r.status === 200) { $("#pay-pin").hidden = r.data.status !== "pending_pin"; payOutcome(r.data); }
-  else show("#pay-result", "err", errText(codeOf(r)));
-});
 
 // ---------- Ro'yxatdan o'tish ----------
 $("#en-btn").onclick = (e) => busy(e.target, async () => {
-  const r = await withChallenge("enroll", "/v1/enroll", { phone: $("#en-phone").value.replace(/\s/g, ""),
-    full_name: $("#en-name").value.trim(), pin: $("#en-pin").value, consent: $("#en-consent").checked });
-  $("#en-pin").value = "";
-  r.status === 201 ? show("#en-result", "ok", `✓ Ro'yxatdan o'tdingiz (${r.data.templates} ta shablon). Endi "Karta" bo'limida kartangizni ulang.`)
-                   : show("#en-result", "err", errText(codeOf(r)));
+  syncPhone(phoneVal("#en-phone"));
+  const r = await withFace("/v1/portal/enroll", { phone: phoneVal("#en-phone"), full_name: $("#en-name").value.trim(),
+                                                  pin: $("#en-pin").value, consent: $("#en-consent").checked });
+  if (r.status === 201) {
+    $("#en-pin").value = "";
+    show("#en-result", "ok", "✓ Ro'yxatdan o'tdingiz. Endi \"Kartalarim\" bo'limida kartangizni ulang.");
+  } else show("#en-result", "err", errText(codeOf(r)));
 });
 
-$("#rp-btn").onclick = (e) => busy(e.target, async () => {
-  const r = await withChallenge("enroll", "/v1/users/reset-pin",
-    { phone: $("#rp-phone").value.replace(/\s/g, ""), new_pin: $("#rp-pin").value });
-  $("#rp-pin").value = "";
-  r.status === 200 ? show("#rp-result", "ok", "✓ Yangi PIN o'rnatildi. Endi uni ishlatishingiz mumkin.")
-                   : show("#rp-result", "err", errText(codeOf(r)));
-});
-FIELD_ERRORS.new_pin = FIELD_ERRORS.pin;
+// ---------- Kartalar ----------
+const statusTag = (c) => !c.verified ? '<span class="tag warn">tasdiqlanmagan</span>'
+  : c.is_default ? '<span class="tag ok">asosiy</span>' : "";
 
-// ---------- Karta ----------
+async function loadCards() {
+  const r = await postJSON("/v1/portal/cards/list", { phone: phoneVal("#cd-phone"), pin: $("#cd-pin").value });
+  const ul = $("#cd-list");
+  ul.textContent = "";
+  if (r.status !== 200) return show("#cd-result", "err", errText(codeOf(r)));
+  $("#cd-result").hidden = true;
+  if (!r.data.cards.length) return show("#cd-result", "warn", "Hali karta ulanmagan.");
+  for (const c of r.data.cards) {
+    const li = document.createElement("li");
+    const left = document.createElement("span");
+    left.innerHTML = `<span class="mono"></span> ${statusTag(c)}`;
+    left.querySelector(".mono").textContent = c.masked;
+    const actions = document.createElement("span");
+    if (c.verified && !c.is_default) {
+      const b = document.createElement("button"); b.className = "link"; b.textContent = "Asosiy qilish";
+      b.onclick = () => busy(b, () => cardAction("/v1/portal/cards/default", c.card_id)); actions.appendChild(b);
+    }
+    const del = document.createElement("button"); del.className = "link"; del.textContent = "O'chirish";
+    del.style.color = "var(--err)"; del.style.marginLeft = "12px";
+    del.onclick = () => busy(del, async () => { if (confirm(`${c.masked} o'chirilsinmi?`)) await cardAction("/v1/portal/cards/delete", c.card_id); });
+    actions.appendChild(del);
+    li.append(left, actions);
+    ul.appendChild(li);
+  }
+}
+async function cardAction(path, card_id) {
+  const r = await postJSON(path, { phone: phoneVal("#cd-phone"), pin: $("#cd-pin").value, card_id });
+  if (r.status !== 200) return show("#cd-result", "err", errText(codeOf(r)));
+  await loadCards();
+}
+$("#cd-list-btn").onclick = (e) => busy(e.target, loadCards);
+
 let pendingCard = null;
-$("#cd-btn").onclick = (e) => busy(e.target, async () => {
-  const r = await signedPost("enroll", "/v1/cards", { phone: $("#cd-phone").value.replace(/\s/g, ""), pin: $("#cd-pin").value,
-    number: $("#cd-number").value.replace(/\D/g, ""), expire: $("#cd-exp").value });
-  $("#cd-pin").value = "";
-  if (r.status === 201) { $("#cd-number").value = ""; pendingCard = r.data.card_id; $("#cd-verify").hidden = false;
-    show("#cd-result", "warn", r.data.demo
-      ? `${r.data.masked}: demo rejim — haqiqiy SMS yuborilmaydi. Kodni kiriting: 666666`
-      : `${r.data.masked}: SMS kod ${r.data.sms_sent_to} raqamiga yuborildi.`); }
-  else show("#cd-result", "err", errText(codeOf(r)));
+$("#cd-add-btn").onclick = (e) => busy(e.target, async () => {
+  const r = await postJSON("/v1/portal/cards", { phone: phoneVal("#cd-phone"), pin: $("#cd-pin").value,
+    number: $("#cd-number").value.replace(/\D/g, ""), expire: $("#cd-exp").value.trim() });
+  if (r.status !== 201) return show("#cd-result", "err", errText(codeOf(r)));
+  $("#cd-number").value = "";
+  pendingCard = r.data.card_id;
+  $("#cd-verify").hidden = false;
+  $("#cd-code").focus();
+  show("#cd-result", "warn", r.data.demo
+    ? `${r.data.masked}: demo rejim — haqiqiy SMS yuborilmaydi. Kodni kiriting: 666666`
+    : `${r.data.masked}: SMS kod ${r.data.sms_sent_to} raqamiga yuborildi.`);
 });
 $("#cd-code-btn").onclick = (e) => busy(e.target, async () => {
-  const r = await signedPost("enroll", `/v1/cards/${pendingCard}/verify`, { phone: $("#cd-phone").value.replace(/\s/g, ""), code: $("#cd-code").value });
+  const r = await postJSON("/v1/portal/cards/verify", { phone: phoneVal("#cd-phone"), code: $("#cd-code").value.trim(), card_id: pendingCard });
   $("#cd-code").value = "";
-  if (r.status === 200) { $("#cd-verify").hidden = true;
-    show("#cd-result", "ok", `✓ ${r.data.masked} ulandi${r.data.is_default ? " (asosiy karta)" : ""}. Endi to'lovlar shu kartadan yechiladi.`); }
-  else { if (codeOf(r) === "sms_urinishlar_tugadi") $("#cd-verify").hidden = true; show("#cd-result", "err", errText(codeOf(r))); }
-});
-$("#cd-list-btn").onclick = (e) => busy(e.target, async () => {
-  const pin = $("#cd-pin").value || prompt("PIN:");
-  const r = await signedPost("enroll", "/v1/cards/list", { phone: $("#cd-phone").value.replace(/\s/g, ""), pin });
-  const ul = $("#cd-list"); ul.textContent = "";
-  if (r.status !== 200) return show("#cd-result", "err", errText(codeOf(r)));
-  if (!r.data.cards.length) return show("#cd-result", "warn", "Ulangan karta yo'q.");
-  for (const c of r.data.cards) { const li = document.createElement("li");
-    li.textContent = `${c.masked}  ${c.verified ? (c.is_default ? "• asosiy" : "") : "• tasdiqlanmagan"}`; ul.appendChild(li); }
+  if (r.status === 200) {
+    $("#cd-verify").hidden = true;
+    show("#cd-result", "ok", `✓ ${r.data.masked} ulandi${r.data.is_default ? " va asosiy karta qilindi" : ""}.`);
+    await loadCards();
+  } else {
+    if (codeOf(r) === "sms_urinishlar_tugadi") $("#cd-verify").hidden = true;
+    show("#cd-result", "err", errText(codeOf(r)));
+  }
 });
 
-// ---------- Makiyaj shabloni va o'chirish ----------
+// ---------- Tarix ----------
+const STATUS = { approved: ["to'landi", "ok"], declined: ["rad etildi", "err"], pending_pin: ["PIN kutilmoqda", "warn"],
+                 charging: ["jarayonda", "warn"], processing: ["jarayonda", "warn"] };
+$("#hs-btn").onclick = (e) => busy(e.target, async () => {
+  const r = await postJSON("/v1/portal/history", { phone: phoneVal("#hs-phone"), pin: $("#hs-pin").value });
+  const ul = $("#hs-list");
+  ul.textContent = "";
+  if (r.status !== 200) return show("#hs-result", "err", errText(codeOf(r)));
+  $("#hs-result").hidden = true;
+  if (!r.data.transactions.length) return show("#hs-result", "warn", "Hali to'lovlar yo'q.");
+  for (const t of r.data.transactions) {
+    const [label, kind] = STATUS[t.status] || [t.status, ""];
+    const li = document.createElement("li");
+    const left = document.createElement("span");
+    const when = new Date(t.time).toLocaleString("uz-UZ", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    left.innerHTML = `<div class="m"></div><div class="meta"></div>`;
+    left.querySelector(".m").textContent = t.merchant;
+    left.querySelector(".meta").textContent = `${when} · ${t.funding === "balance" ? "balans" : (t.funding || "")}` +
+      (t.status === "declined" ? ` · ${errText(t.reason)}` : "");
+    const right = document.createElement("span");
+    right.innerHTML = `<span class="amount"></span> <span class="tag ${kind}"></span>`;
+    right.querySelector(".amount").textContent = fmt(t.amount);
+    right.querySelector(".tag").textContent = label;
+    li.append(left, right);
+    ul.appendChild(li);
+  }
+});
+
+// ---------- Sozlamalar ----------
+$("#rp-btn").onclick = (e) => busy(e.target, async () => {
+  const r = await withFace("/v1/portal/reset-pin", { phone: phoneVal("#st-phone"), new_pin: $("#rp-pin").value });
+  if (r.status === 200) { $("#rp-pin").value = ""; show("#rp-result", "ok", "✓ Yangi PIN o'rnatildi."); }
+  else show("#rp-result", "err", errText(codeOf(r)));
+});
 $("#va-btn").onclick = (e) => busy(e.target, async () => {
-  const r = await withChallenge("enroll", "/v1/templates/variant", { phone: $("#va-phone").value.replace(/\s/g, ""),
-    pin: $("#va-pin").value, label: $("#va-label").value || "makiyaj" });
+  const r = await withFace("/v1/portal/variant", { phone: phoneVal("#st-phone"), pin: $("#va-pin").value,
+                                                   label: $("#va-label").value.trim() || "makiyaj" });
   $("#va-pin").value = "";
   r.status === 201 ? show("#va-result", "ok", `✓ "${r.data.label}" shabloni qo'shildi.`) : show("#va-result", "err", errText(codeOf(r)));
 });
 $("#del-btn").onclick = (e) => busy(e.target, async () => {
   if (!confirm("Barcha ma'lumotlaringiz butunlay o'chiriladi. Davom etasizmi?")) return;
-  const r = await withChallenge("enroll", "/v1/users/delete", { phone: $("#va-phone").value.replace(/\s/g, ""), pin: $("#va-pin").value });
-  $("#va-pin").value = "";
-  r.status === 200 ? show("#va-result", "ok", "✓ Ma'lumotlaringiz o'chirildi.") : show("#va-result", "err", errText(codeOf(r)));
-});
-
-// ---------- Sozlash ----------
-function renderSetup() {
-  const ok = conf("enroll") && conf("payment");
-  $("#setup-state").textContent = ok ? "✓ Bu qurilma terminal sifatida ro'yxatdan o'tgan." : "Bu qurilma hali ro'yxatdan o'tmagan.";
-  if (!ok) selectTab("setup");
-}
-$("#st-btn").onclick = (e) => busy(e.target, async () => {
-  const H = { "Content-Type": "application/json", "X-Admin-Key": $("#st-admin").value };
-  let kp;
-  try { kp = await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]); }
-  catch { return show("#st-result", "err", errText("ed25519")); }
-  let r = await fetch("/v1/admin/merchants", { method: "POST", headers: H, body: JSON.stringify({ name: "Toshkent metropoliteni" }) });
-  if (!r.ok) return show("#st-result", "err", errText((await r.json().catch(() => ({}))).detail));
-  const merchant = (await r.json()).merchant_id;
-  for (const role of ["enroll", "payment"]) {
-    const pair = role === "enroll" ? kp : await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]);
-    const pub = b64(await crypto.subtle.exportKey("raw", pair.publicKey));
-    r = await fetch("/v1/admin/terminals", { method: "POST", headers: H,
-      body: JSON.stringify({ name: `brauzer-${role}`, merchant_id: merchant, public_key_b64: pub, role }) });
-    if (!r.ok) return show("#st-result", "err", "Xato: HTTP " + r.status);
-    await idbPut(role, pair.privateKey);
-    localStorage.setItem("facepay_" + role, JSON.stringify({ id: (await r.json()).terminal_id }));
-  }
-  $("#st-admin").value = "";
-  show("#st-result", "ok", "✓ Qurilma ro'yxatdan o'tdi. Endi \"Ro'yxatdan o'tish\" bo'limiga o'ting.");
-  renderSetup();
-});
-$("#tp-btn").onclick = (e) => busy(e.target, async () => {
-  const r = await fetch("/v1/admin/topup", { method: "POST", headers: { "Content-Type": "application/json", "X-Admin-Key": $("#st-admin").value },
-    body: JSON.stringify({ phone: $("#tp-phone").value.replace(/\s/g, ""), amount: parseInt($("#tp-amount").value, 10) }) });
-  const d = await r.json().catch(() => ({}));
-  r.ok ? show("#st-result", "ok", `✓ Balans: ${fmt(d.balance)} so'm`) : show("#st-result", "err", errText(d.detail));
+  const r = await withFace("/v1/portal/delete", { phone: phoneVal("#st-phone"), pin: $("#del-pin").value });
+  $("#del-pin").value = "";
+  if (r.status === 200) { show("#del-result", "ok", "✓ Ma'lumotlaringiz o'chirildi."); syncPhone(""); }
+  else show("#del-result", "err", errText(codeOf(r)));
 });
 
 // ---------- Tablar ----------
@@ -438,7 +261,6 @@ function selectTab(name) {
   document.querySelectorAll("main > section").forEach((s) => { s.hidden = s.id !== "tab-" + name; });
 }
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => selectTab(b.dataset.tab)));
-renderSetup();
 </script>
 </body>
 </html>

@@ -60,6 +60,7 @@ class Settings(BaseSettings):
 
     # --- Rate limit ---
     rate_limit_per_minute: int = 60
+    portal_rate_limit_per_minute: int = 20   # ochiq mijoz sayti: bitta IP dan
 
     # --- Karta protsessingi ---
     payment_gateway: str = "mock"       # mock | payme

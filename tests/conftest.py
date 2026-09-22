@@ -21,6 +21,7 @@ os.environ.update({
     "FACEPAY_TEMPLATE_TRANSFORM_SEED_B64": base64.b64encode(b"s" * 32).decode(),
     "FACEPAY_ADMIN_API_KEY": "test-admin-key",
     "FACEPAY_DATABASE_URL": "sqlite://",
+    "FACEPAY_PORTAL_RATE_LIMIT_PER_MINUTE": "1000",
 })
 
 DIM = 512

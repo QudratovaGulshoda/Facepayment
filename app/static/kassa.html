@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FacePay kassa</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .big-amount { font-size: 34px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums;
+                padding: 10px 12px; }
+  .outcome { text-align: center; padding: 18px 12px; border-radius: 14px; margin-top: 12px; font-size: 18px; font-weight: 600; }
+  .outcome.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+  .outcome.err { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
+  .outcome.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+  .outcome small { display: block; font-weight: 400; font-size: 14px; margin-top: 4px; }
+  .total { display: flex; justify-content: space-between; align-items: baseline; }
+  .total .amount { font-size: 20px; }
+  .quick { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .quick button { flex: 1; min-width: 70px; padding: 8px; border-radius: 8px; border: 1px solid var(--line);
+                  background: var(--bg); color: var(--text); cursor: pointer; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>FacePay kassa</h1>
+    <span class="sub" id="merchant-name"></span>
+  </header>
+
+  <!-- Sozlash: faqat birinchi marta (bank / admin tomonidan) -->
+  <section id="setup" hidden>
+    <h2>Kassani ro'yxatdan o'tkazish</h2>
+    <p class="muted">Bir marta bajariladi. Qurilma Ed25519 kalit yaratadi, yopiq kalitni eksport qilib bo'lmaydi va u shu qurilmada qoladi. Admin kaliti saqlanmaydi.</p>
+    <label for="st-name">Do'kon / bekat nomi</label>
+    <input id="st-name" value="Toshkent metropoliteni">
+    <label for="st-admin">Admin kaliti</label>
+    <input id="st-admin" type="password" autocomplete="off">
+    <button class="primary" id="st-btn">Ro'yxatdan o'tkazish</button>
+    <div class="result" id="st-result" hidden></div>
+  </section>
+
+  <div id="kassa" hidden>
+    <div class="cam"><video id="video" playsinline muted></video><div class="prompt" id="prompt">Kamera yoqilmagan</div></div>
+
+    <section>
+      <label for="amount">To'lov summasi (so'm)</label>
+      <input id="amount" class="big-amount" type="number" inputmode="numeric" value="1700" min="1">
+      <div class="quick">
+        <button data-amount="1700">1 700</button>
+        <button data-amount="15000">15 000</button>
+        <button data-amount="50000">50 000</button>
+        <button data-amount="350000">350 000</button>
+      </div>
+      <p class="muted">200 000 so'mgacha — faqat yuz. Undan ko'p bo'lsa mijoz PIN kiritadi.</p>
+      <button class="primary" id="pay-btn">Mijoz yuzi bilan to'lov</button>
+
+      <div id="pin-box" hidden>
+        <label for="pin">Mijoz PIN'ni kiritadi</label>
+        <input id="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off">
+        <button class="primary" id="pin-btn">Tasdiqlash</button>
+      </div>
+      <div class="outcome" id="outcome" hidden></div>
+    </section>
+
+    <section>
+      <div class="total"><h2>Bugungi tushum</h2><span class="amount" id="today">—</span></div>
+      <ul class="list" id="tx-list"></ul>
+      <button class="link" id="refresh">Yangilash</button>
+    </section>
+
+    <footer><button class="link" id="reset-btn" style="color:var(--muted)">Kassani qayta sozlash</button></footer>
+  </div>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+"use strict";
+Camera.attach($("#video"), $("#prompt"));
+const enc = new TextEncoder();
+
+// ---------- Kalit (IndexedDB, eksport qilib bo'lmaydigan CryptoKey) ----------
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("facepay-kassa", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("keys");
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbPut(k, v) {
+  const db = await idb();
+  return new Promise((res, rej) => { const tx = db.transaction("keys", "readwrite"); tx.objectStore("keys").put(v, k);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+}
+async function idbGet(k) {
+  const db = await idb();
+  return new Promise((res, rej) => { const r = db.transaction("keys").objectStore("keys").get(k);
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+}
+const conf = () => { try { return JSON.parse(localStorage.getItem("facepay_kassa")); } catch { return null; } };
+
+async function signedPost(path, payload) {
+  const c = conf(), key = await idbGet("payment");
+  if (!c || !key) return { status: 0, data: { error: "terminal_sozlanmagan" } };
+  const body = enc.encode(JSON.stringify(payload));
+  const ts = String(Math.floor(Date.now() / 1000));
+  const nonce = hex(crypto.getRandomValues(new Uint8Array(16)));
+  const canon = ["POST", path, ts, nonce, hex(await crypto.subtle.digest("SHA-256", body))].join("\n");
+  const sig = await crypto.subtle.sign({ name: "Ed25519" }, key, enc.encode(canon));
+  try {
+    const r = await fetch(path, { method: "POST", body, headers: { "Content-Type": "application/json",
+      "X-Terminal-Id": c.id, "X-Timestamp": ts, "X-Nonce": nonce, "X-Signature": b64(sig) } });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 401 && data.detail === "terminal_nomalum") { localStorage.removeItem("facepay_kassa"); render(); }
+    return { status: r.status, data };
+  } catch {
+    return { status: 0, data: { error: "tarmoq" } };
+  }
+}
+
+// ---------- Sozlash ----------
+$("#st-btn").onclick = (e) => busy(e.target, async () => {
+  let pair;
+  try { pair = await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]); }
+  catch { return show("#st-result", "err", errText("ed25519")); }
+  const H = { "X-Admin-Key": $("#st-admin").value };
+  const name = $("#st-name").value.trim() || "Do'kon";
+  let r = await postJSON("/v1/admin/merchants", { name }, H);
+  if (r.status !== 201) return show("#st-result", "err", errText(codeOf(r)));
+  const pub = b64(await crypto.subtle.exportKey("raw", pair.publicKey));
+  r = await postJSON("/v1/admin/terminals", { name: `kassa-${name}`.slice(0, 120), merchant_id: r.data.merchant_id,
+                                              public_key_b64: pub, role: "payment" }, H);
+  if (r.status !== 201) return show("#st-result", "err", errText(codeOf(r)));
+  await idbPut("payment", pair.privateKey);
+  localStorage.setItem("facepay_kassa", JSON.stringify({ id: r.data.terminal_id, name }));
+  $("#st-admin").value = "";
+  render();
+});
+$("#reset-btn").onclick = () => {
+  if (confirm("Kassa qayta ro'yxatdan o'tkaziladi (admin kaliti kerak bo'ladi). Davom etasizmi?")) {
+    localStorage.removeItem("facepay_kassa"); Camera.stop(); render();
+  }
+};
+
+// ---------- To'lov ----------
+document.querySelectorAll(".quick button").forEach((b) => (b.onclick = () => ($("#amount").value = b.dataset.amount)));
+
+function outcome(kind, title, detail = "") {
+  const el = $("#outcome");
+  el.hidden = false;
+  el.className = "outcome " + kind;
+  el.textContent = title;
+  if (detail) { const s = document.createElement("small"); s.textContent = detail; el.appendChild(s); }
+}
+
+let pendingTx = null;
+function handleTx(d) {
+  if (d.status === "approved") {
+    $("#pin-box").hidden = true;
+    outcome("ok", `✓ To'landi: ${fmt(d.amount)} so'm`,
+            `${d.customer ? d.customer + " · " : ""}${d.funding === "balance" ? "FacePay balansidan" : d.funding}`);
+  } else if (d.status === "pending_pin") {
+    pendingTx = d.transaction_id;
+    $("#pin-box").hidden = false;
+    $("#pin").focus();
+    outcome("warn", `${d.customer}, PIN kiriting`, `${fmt(d.amount)} so'm`);
+  } else {
+    $("#pin-box").hidden = true;
+    outcome("err", "✗ Rad etildi", errText(d.reason));
+  }
+  loadHistory();
+}
+
+$("#pay-btn").onclick = (e) => busy(e.target, async () => {
+  $("#pin-box").hidden = true;
+  $("#outcome").hidden = true;
+  const amount = parseInt($("#amount").value, 10);
+  const r = await Camera.run(() => signedPost("/v1/liveness/challenge", {}),
+    (cap) => signedPost("/v1/payments", { ...cap, amount, idempotency_key: hex(crypto.getRandomValues(new Uint8Array(16))) }));
+  if (r.status === 200) handleTx(r.data);
+  else outcome("err", "✗ Rad etildi", errText(codeOf(r)));
+});
+$("#pin-btn").onclick = (e) => busy(e.target, async () => {
+  const r = await signedPost(`/v1/payments/${pendingTx}/pin`, { pin: $("#pin").value });
+  $("#pin").value = "";
+  if (r.status === 200) handleTx(r.data);
+  else outcome("err", errText(codeOf(r)), "Qayta kiriting");
+});
+
+// ---------- Tushumlar ----------
+async function loadHistory() {
+  const r = await signedPost("/v1/terminal/transactions", {});
+  if (r.status !== 200) return;
+  $("#today").textContent = fmt(r.data.today_total) + " so'm";
+  const ul = $("#tx-list");
+  ul.textContent = "";
+  for (const t of r.data.transactions.slice(0, 10)) {
+    const li = document.createElement("li");
+    const when = new Date(t.time).toLocaleTimeString("uz-UZ", { hour: "2-digit", minute: "2-digit" });
+    const left = document.createElement("span");
+    left.innerHTML = `<div class="m"></div><div class="meta"></div>`;
+    left.querySelector(".m").textContent = when;
+    left.querySelector(".meta").textContent = t.status === "declined" ? errText(t.reason)
+      : t.status === "approved" ? (t.method === "face+pin" ? "yuz + PIN" : "yuz") : "PIN kutilmoqda";
+    const right = document.createElement("span");
+    const kind = t.status === "approved" ? "ok" : t.status === "declined" ? "err" : "warn";
+    right.innerHTML = `<span class="amount"></span> <span class="tag ${kind}"></span>`;
+    right.querySelector(".amount").textContent = fmt(t.amount);
+    right.querySelector(".tag").textContent = t.status === "approved" ? "✓" : t.status === "declined" ? "✗" : "…";
+    li.append(left, right);
+    ul.appendChild(li);
+  }
+}
+$("#refresh").onclick = (e) => busy(e.target, loadHistory);
+
+function render() {
+  const c = conf();
+  $("#setup").hidden = !!c;
+  $("#kassa").hidden = !c;
+  $("#merchant-name").textContent = c ? c.name : "";
+  if (c) loadHistory();
+}
+render();
+</script>
+</body>
+</html>

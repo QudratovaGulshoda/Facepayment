@@ -23,6 +23,7 @@ class Core:
         self.gallery = Gallery(s.embedding_dim)
         self.nonces = NonceCache(ttl_seconds=s.request_max_skew_seconds * 2 + 5)
         self.rate_limiter = RateLimiter(s.rate_limit_per_minute)
+        self.portal_limiter = RateLimiter(s.portal_rate_limit_per_minute)
 
     # Shablon shifrlanganda AAD = foydalanuvchi + shablon ID si
     @staticmethod

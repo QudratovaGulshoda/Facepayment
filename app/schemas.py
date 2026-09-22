@@ -84,3 +84,11 @@ class CardVerifyIn(BaseModel):
 class PhonePinIn(BaseModel):
     phone: str = Field(..., pattern=PHONE_PATTERN)
     pin: str = Field(..., pattern=r"^\d{4,6}$")
+
+
+class CardIdPhonePinIn(PhonePinIn):
+    card_id: str = Field(..., max_length=36)
+
+
+class CardVerifyPortalIn(CardVerifyIn):
+    card_id: str = Field(..., max_length=36)

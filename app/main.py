@@ -13,6 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
@@ -23,8 +24,9 @@ from app.biometrics.pipeline import BiometricError, CaptureResult, process_captu
 from app.config import get_settings
 from app.core import audit, get_core, verify_audit_chain
 from app.db import Challenge, Merchant, Terminal, get_session, session_factory, utcnow
-from app.schemas import (CaptureIn, CardAddIn, CardVerifyIn, DeleteIn, EnrollIn, MerchantIn, PaymentIn,
-                         PhonePinIn, PinIn, PinResetIn, TerminalIn, TopUpIn, VariantIn)
+from app.schemas import (CaptureIn, CardAddIn, CardIdPhonePinIn, CardVerifyIn, CardVerifyPortalIn, DeleteIn,
+                         EnrollIn, MerchantIn, PaymentIn, PhonePinIn, PinIn, PinResetIn, TerminalIn, TopUpIn,
+                         VariantIn)
 from app.security.terminal_auth import SignatureError, verify_request
 from app.services import cards, payments, users
 from app.services.users import ServiceError
@@ -67,6 +69,12 @@ async def service_error_handler(_: Request, exc: ServiceError):
     return JSONResponse({"error": exc.code}, status_code=exc.status)
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(_: Request, exc: RequestValidationError):
+    # Kiritilgan qiymat (karta raqami, PIN) javobda qaytarilmaydi — faqat maydon nomi va sabab
+    return JSONResponse({"detail": [{"loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()]}, status_code=422)
+
+
 @app.exception_handler(BiometricError)
 async def biometric_error_handler(_: Request, exc: BiometricError):
     return JSONResponse({"error": exc.code}, status_code=422)
@@ -98,7 +106,7 @@ async def signed_terminal(
     if not core.rate_limiter.allow(f"t:{x_terminal_id}"):
         raise HTTPException(429, "juda_kop_sorov")
     terminal = db.get(Terminal, x_terminal_id)
-    if not terminal or not terminal.active:
+    if not terminal or not terminal.active or terminal.role == PORTAL_ROLE:
         raise HTTPException(401, "terminal_nomalum")
     body = await request.body()
     try:
@@ -140,9 +148,25 @@ def consume_challenge(db: Session, terminal: Terminal, data: CaptureIn) -> Captu
 # ---------------- Terminal endpointlari ----------------
 
 @app.get("/", include_in_schema=False)
-def web_terminal():
-    """Brauzer terminali: kamera, to'lov, ro'yxatdan o'tish, karta ulash."""
+def customer_site():
+    """Mijoz sayti: ro'yxatdan o'tish, karta, PIN tiklash, tarix."""
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/kassa", include_in_schema=False)
+def merchant_kassa():
+    """Sotuvchi kassasi: summa -> mijoz yuzi -> to'lov."""
+    return FileResponse(STATIC_DIR / "kassa.html")
+
+
+STATIC_FILES = {"common.js": "text/javascript", "style.css": "text/css"}
+
+
+@app.get("/static/{name}", include_in_schema=False)
+def static_file(name: str):
+    if name not in STATIC_FILES:  # faqat ruxsat etilgan fayllar (path traversal yo'q)
+        raise HTTPException(404)
+    return FileResponse(STATIC_DIR / name, media_type=STATIC_FILES[name])
 
 
 @app.get("/health")
@@ -150,17 +174,21 @@ def health():
     return {"status": "ok", "templates": len(get_core().gallery)}
 
 
-@app.post("/v1/liveness/challenge")
-def create_challenge(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+def _new_challenge(db: Session, terminal: Terminal) -> dict:
     s = get_settings()
     eye_mouth = getattr(get_analyzer(), "supports_eye_mouth", False)
     steps = generate_challenge(s.challenge_steps, eye_mouth)
-    ch = Challenge(terminal_id=req.terminal.id, steps=steps,
+    ch = Challenge(terminal_id=terminal.id, steps=steps,
                    expires_at=utcnow() + timedelta(seconds=s.challenge_ttl_seconds))
     db.add(ch)
     db.commit()
     return {"challenge_id": ch.id, "steps": steps, "instructions": [ACTION_TEXT_UZ[a] for a in steps],
             "expires_in": s.challenge_ttl_seconds}
+
+
+@app.post("/v1/liveness/challenge")
+def create_challenge(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    return _new_challenge(db, req.terminal)
 
 
 @app.post("/v1/enroll", status_code=201)
@@ -221,6 +249,12 @@ def create_payment(req: SignedRequest = Depends(signed_terminal), db: Session = 
     return _tx_out(tx, info)
 
 
+@app.post("/v1/terminal/transactions")
+def terminal_transactions(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    require_role(req, "payment")
+    return payments.terminal_history(db, req.terminal)
+
+
 @app.post("/v1/payments/{tx_id}/pin")
 def confirm_pin(tx_id: str, req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
     require_role(req, "payment")
@@ -272,6 +306,103 @@ def delete_card(card_id: str, req: SignedRequest = Depends(signed_terminal), db:
     data = req.parse(PhonePinIn)
     cards.remove_card(db, req.terminal, card_id, data.phone, data.pin)
     return {"deleted": True}
+
+
+# ---------------- Mijoz sayti (ochiq) ----------------
+# Mijoz o'z telefonidan kiradi — imzolaydigan terminal yo'q. Himoya:
+#   - IP bo'yicha qattiq rate limit
+#   - har bir biometrik amal liveness sinovi bilan (sinov bir martalik, 30 s)
+#   - karta/tarix/variant/o'chirish — PIN bilan; PIN tiklash — yuz (1:N margin) bilan
+#   - ro'yxatdan o'tishda bir yuzga bitta hisob (1:N tekshiruv)
+# Prod'da qo'shimcha: telefon raqamiga SMS OTP (egasi ekanini tasdiqlash).
+# Audit uchun barcha amallar bitta "web-portal" psevdo-terminaliga yoziladi (imzo bilan kirib bo'lmaydi).
+
+PORTAL_ROLE = "portal"
+
+
+def _portal_terminal(db: Session) -> Terminal:
+    t = db.query(Terminal).filter(Terminal.role == PORTAL_ROLE).first()
+    if not t:
+        t = Terminal(name="web-portal", role=PORTAL_ROLE, public_key_b64="-", active=True)
+        db.add(t)
+        db.commit()
+    return t
+
+
+def portal_client(request: Request, db: Session = Depends(get_session)) -> Terminal:
+    fwd = request.headers.get("x-forwarded-for", "")
+    ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
+    if not get_core().portal_limiter.allow(f"ip:{ip}"):
+        raise HTTPException(429, "juda_kop_sorov")
+    return _portal_terminal(db)
+
+
+@app.post("/v1/portal/challenge")
+def portal_challenge(t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    return _new_challenge(db, t)
+
+
+@app.post("/v1/portal/enroll", status_code=201)
+def portal_enroll(data: EnrollIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    capture = consume_challenge(db, t, data)
+    user = users.enroll(db, t, data.phone, data.full_name, data.pin, data.consent, capture)
+    return {"user_id": user.id, "templates": len(user.templates)}
+
+
+@app.post("/v1/portal/reset-pin")
+def portal_reset_pin(data: PinResetIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    capture = consume_challenge(db, t, data)
+    users.reset_pin(db, t, data.phone, data.new_pin, capture)
+    return {"reset": True}
+
+
+@app.post("/v1/portal/variant", status_code=201)
+def portal_variant(data: VariantIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    capture = consume_challenge(db, t, data)
+    tpl = users.add_variant(db, t, data.phone, data.pin, data.label, capture)
+    return {"template_id": tpl.id, "label": tpl.label}
+
+
+@app.post("/v1/portal/delete")
+def portal_delete(data: DeleteIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    capture = consume_challenge(db, t, data)
+    users.delete_user_data(db, t, data.phone, data.pin, capture)
+    return {"deleted": True}
+
+
+@app.post("/v1/portal/cards", status_code=201)
+def portal_add_card(data: CardAddIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    card, phone_hint = cards.add_card(db, t, data.phone, data.pin, data.number, data.expire)
+    return {**_card_out(card), "sms_sent_to": phone_hint, "demo": card.provider == "mock"}
+
+
+@app.post("/v1/portal/cards/verify")
+def portal_verify_card(data: CardVerifyPortalIn, t: Terminal = Depends(portal_client),
+                       db: Session = Depends(get_session)):
+    return _card_out(cards.verify_card(db, t, data.card_id, data.phone, data.code))
+
+
+@app.post("/v1/portal/cards/list")
+def portal_list_cards(data: PhonePinIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    return {"cards": [_card_out(c) for c in cards.list_cards(db, data.phone, data.pin)]}
+
+
+@app.post("/v1/portal/cards/default")
+def portal_default_card(data: CardIdPhonePinIn, t: Terminal = Depends(portal_client),
+                        db: Session = Depends(get_session)):
+    return _card_out(cards.set_default(db, t, data.card_id, data.phone, data.pin))
+
+
+@app.post("/v1/portal/cards/delete")
+def portal_delete_card(data: CardIdPhonePinIn, t: Terminal = Depends(portal_client),
+                       db: Session = Depends(get_session)):
+    cards.remove_card(db, t, data.card_id, data.phone, data.pin)
+    return {"deleted": True}
+
+
+@app.post("/v1/portal/history")
+def portal_history(data: PhonePinIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    return {"transactions": payments.user_history(db, data.phone, data.pin)}
 
 
 # ---------------- Admin endpointlari ----------------

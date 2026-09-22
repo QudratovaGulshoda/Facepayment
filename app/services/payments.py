@@ -188,3 +188,35 @@ def confirm_pin(db: Session, terminal: Terminal, tx_id: str, pin: str) -> Transa
         db.commit()
         raise
     return _approve(db, tx, user, "face+pin")
+
+
+def _tx_row(tx: Transaction, merchant_name: str | None = None) -> dict:
+    row = {"id": tx.id, "time": tx.created_at.isoformat() + "Z", "amount": tx.amount, "status": tx.status,
+           "method": tx.method, "funding": tx.funding, "reason": tx.decline_reason}
+    if merchant_name is not None:
+        row["merchant"] = merchant_name
+    return row
+
+
+def user_history(db: Session, phone: str, pin: str, limit: int = 20) -> list[dict]:
+    """Mijozning o'z to'lovlari (PIN bilan). Rad etilgan urinishlar ham ko'rinadi — begona urinishni sezish uchun."""
+    from app.services.users import find_user_by_phone
+
+    user = find_user_by_phone(db, phone)
+    if not user:
+        raise ServiceError("topilmadi", 404)
+    verify_user_pin(db, user, pin)
+    db.commit()
+    q = (select(Transaction, Merchant.name).join(Merchant, Merchant.id == Transaction.merchant_id)
+         .where(Transaction.user_id == user.id).order_by(Transaction.created_at.desc()).limit(limit))
+    return [_tx_row(tx, name) for tx, name in db.execute(q)]
+
+
+def terminal_history(db: Session, terminal: Terminal, limit: int = 20) -> dict:
+    """Kassa: shu terminal orqali o'tgan to'lovlar va bugungi tushum. Mijoz shaxsi ko'rsatilmaydi."""
+    q = (select(Transaction).where(Transaction.terminal_id == terminal.id)
+         .order_by(Transaction.created_at.desc()).limit(limit))
+    start = datetime.combine(utcnow().date(), time.min)
+    today = db.scalar(select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+        Transaction.terminal_id == terminal.id, Transaction.status == "approved", Transaction.created_at >= start))
+    return {"today_total": int(today), "transactions": [_tx_row(tx) for tx in db.scalars(q)]}

@@ -433,3 +433,100 @@ def test_demo_card_sms_hint_is_users_own_phone(env):
     enroll(env, random_unit(env["rng"]), phone="+998948431011")
     r = env["enroll"].post("/v1/cards", {"phone": "+998948431011", "pin": "4821", "number": GOOD_CARD, "expire": "0829"})
     assert r.json()["sms_sent_to"] == "+99894*****11" and r.json()["demo"] is True
+
+
+# ---------------- Mijoz sayti (ochiq portal) va kassa ----------------
+
+def portal_capture(env, emb):
+    ch = env["http"].post("/v1/portal/challenge", json={}).json()
+    rng = env["rng"]
+    frames, stamps = [], []
+    for k, p in enumerate(poses_for(ch["steps"])):
+        frames.append(env["mock"].frame([{"emb": noisy(emb, rng, 0.92), "spoof": 0.95, **p}]))
+        stamps.append(1_700_000_000_000 + k * 150)
+    return {"challenge_id": ch["challenge_id"], "frames": frames, "timestamps_ms": stamps}
+
+
+def portal(env, path, payload):
+    return env["http"].post(path, json=payload)
+
+
+PHONE = "+998948431011"
+
+
+def portal_enroll(env, emb, pin="4821"):
+    r = portal(env, "/v1/portal/enroll", {**portal_capture(env, emb), "phone": PHONE,
+                                          "full_name": "Gulshoda Qudratova", "pin": pin, "consent": True})
+    assert r.status_code == 201, r.text
+
+
+def test_portal_full_customer_flow(env):
+    """Mijoz o'z telefonidan: ro'yxat -> karta -> (kassada to'lov) -> tarix."""
+    me = random_unit(env["rng"])
+    portal_enroll(env, me)
+    card = portal(env, "/v1/portal/cards", {"phone": PHONE, "pin": "4821", "number": GOOD_CARD, "expire": "0829"}).json()
+    v = portal(env, "/v1/portal/cards/verify", {"phone": PHONE, "code": "666666", "card_id": card["card_id"]})
+    assert v.json()["is_default"]
+    assert pay(env, me, 1_700).json()["status"] == "approved"   # kassa (imzolangan terminal)
+    hist = portal(env, "/v1/portal/history", {"phone": PHONE, "pin": "4821"}).json()["transactions"]
+    assert hist[0]["amount"] == 1700 and hist[0]["merchant"] == "Metro" and hist[0]["funding"].endswith("9012")
+    cards_list = portal(env, "/v1/portal/cards/list", {"phone": PHONE, "pin": "4821"}).json()["cards"]
+    assert len(cards_list) == 1
+
+
+def test_portal_history_requires_pin(env):
+    portal_enroll(env, random_unit(env["rng"]))
+    assert portal(env, "/v1/portal/history", {"phone": PHONE, "pin": "9999"}).status_code == 401
+
+
+def test_portal_reset_pin_with_face(env):
+    me = random_unit(env["rng"])
+    portal_enroll(env, me)
+    r = portal(env, "/v1/portal/reset-pin", {**portal_capture(env, me), "phone": PHONE, "new_pin": "7392"})
+    assert r.status_code == 200
+    assert portal(env, "/v1/portal/history", {"phone": PHONE, "pin": "7392"}).status_code == 200
+    other = portal(env, "/v1/portal/reset-pin", {**portal_capture(env, random_unit(env["rng"])), "phone": PHONE, "new_pin": "5816"})
+    assert other.status_code == 401
+
+
+def test_portal_validation_never_echoes_card_or_pin(env):
+    r = portal(env, "/v1/portal/cards", {"phone": PHONE, "pin": "12", "number": "86001234567890129999", "expire": "0829"})
+    assert r.status_code == 422
+    assert "86001234567890129999" not in r.text and '"12"' not in r.text
+
+
+def test_portal_rate_limited_per_ip(env):
+    from app.core import get_core
+    from app.security.terminal_auth import RateLimiter
+
+    get_core().portal_limiter = RateLimiter(3)
+    codes = [portal(env, "/v1/portal/challenge", {}).status_code for _ in range(5)]
+    assert codes[:3] == [200, 200, 200] and codes[3:] == [429, 429]
+
+
+def test_portal_pseudo_terminal_cannot_sign(env):
+    """Portal psevdo-terminali nomidan imzolangan so'rov yuborib bo'lmaydi."""
+    portal(env, "/v1/portal/challenge", {})
+    with dbmod.session_factory()() as s:
+        pid = s.execute(text("select id from terminals where role='portal'")).scalar()
+    fake = TerminalClient("", pid, Ed25519PrivateKey.generate(), http=env["http"])
+    assert fake.post("/v1/liveness/challenge", {}).status_code == 401
+
+
+def test_kassa_sees_own_transactions_and_today_total(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    pay(env, me, 1_700)
+    pay(env, me, 2_300)
+    pay(env, random_unit(env["rng"]), 5_000)  # rad etiladi
+    h = env["pay"].post("/v1/terminal/transactions", {}).json()
+    assert h["today_total"] == 4_000 and len(h["transactions"]) == 3
+    assert "customer" not in h["transactions"][0] and "user_id" not in h["transactions"][0]
+
+
+def test_pages_served(env):
+    for path, marker in (("/", "Shaxsiy kabinet"), ("/kassa", "FacePay kassa"),
+                         ("/static/common.js", "Camera"), ("/static/style.css", ":root")):
+        r = env["http"].get(path)
+        assert r.status_code == 200 and marker in r.text, path
+    assert env["http"].get("/static/..%2Fmain.py").status_code == 404
