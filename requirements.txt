@@ -1,0 +1,21 @@
+# Server
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+SQLAlchemy==2.0.54
+pydantic==2.13.5
+pydantic-settings==2.15.0
+cryptography==50.0.1
+numpy==2.5.3
+httpx==0.28.1
+psycopg[binary]==3.3.6   # PostgreSQL (Neon, Supabase)
+
+# Biometrika
+insightface==2.0
+onnxruntime==1.30.0
+onnx==1.16.2            # protobuf 4 bilan mos (mediapipe talabi)
+protobuf==4.25.9
+mediapipe==0.10.14      # 1.0.x macOS'da Metal xatosi bilan yiqiladi
+opencv-contrib-python==5.0.0.93   # boshqa opencv-* paketlarini O'RNATMANG (to'qnashadi)
+
+# Test
+pytest==9.1.1

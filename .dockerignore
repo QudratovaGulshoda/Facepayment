@@ -1,0 +1,8 @@
+.venv
+.env
+.deploy_secrets.json
+*.db
+__pycache__
+.pytest_cache
+models/*.onnx
+models/*.task
