@@ -34,7 +34,7 @@ data = modal.Volume.from_name("facepay-data", create_if_missing=True)
 @app.function(
     secrets=[modal.Secret.from_name("facepay-secrets")],
     volumes={"/data": data},
-    cpu=2.0,
+    cpu=4.0,
     memory=2048,
     max_containers=1,
     scaledown_window=600,

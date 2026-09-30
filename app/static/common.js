@@ -182,11 +182,12 @@ const Camera = {
   },
 
   // Kadrlar xom (ko'zgu emas) holda yuboriladi — server shunga kalibrlangan.
-  // Harakatlar uchun 2.5 s, boshida/oxirida 1.2 s; ~7-8 kadr/s — ko'z qisish ikki kadr orasida qolmasin.
+  // Jami ~3.4 s: 0.8 s to'g'ri qarash + 2 s harakat + 0.6 s to'g'ri qarash, ~7 kadr/s
+  // (ko'z qisish 150-300 ms davom etadi, shuning uchun kadrlar orasi 150 ms dan oshmasligi kerak).
   async capture(instructions) {
-    const plan = [["Kameraga to'g'ri qarang", 1200], ...instructions.map((t) => [t, 2500]), ["Kameraga to'g'ri qarang", 1200]];
-    const total = plan.reduce((a, [, ms]) => a + ms, 0), maxFrames = 56;
-    const interval = Math.max(110, total / maxFrames);
+    const plan = [["Kameraga to'g'ri qarang", 800], ...instructions.map((t) => [t, 2000]), ["Kameraga to'g'ri qarang", 600]];
+    const total = plan.reduce((a, [, ms]) => a + ms, 0), maxFrames = 24;
+    const interval = Math.max(100, total / maxFrames);
     const v = this.video, scale = Math.min(1, 640 / v.videoWidth);
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(v.videoWidth * scale);
@@ -199,7 +200,7 @@ const Camera = {
       while (performance.now() < end) {
         if (frames.length < maxFrames) {
           ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-          frames.push(canvas.toDataURL("image/jpeg", 0.8).split(",")[1]);
+          frames.push(canvas.toDataURL("image/jpeg", 0.75).split(",")[1]);
           timestamps_ms.push(Date.now());
         }
         await sleep(interval);

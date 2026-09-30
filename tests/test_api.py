@@ -30,6 +30,7 @@ class MockAnalyzer:
     def __init__(self):
         self.specs: dict[int, list[dict]] = {}
         self._next = 1
+        self.embed_calls = 0
         self._rng = np.random.default_rng(0)
 
     def frame(self, faces: list[dict]) -> str:
@@ -42,17 +43,24 @@ class MockAnalyzer:
         ok, png = cv2.imencode(".png", img)
         return base64.b64encode(png.tobytes()).decode()
 
-    def analyze(self, image):
+    def analyze(self, image, embed=True):
         b, g, _ = image[0, 0]
         out = []
         for k, f in enumerate(self.specs[int(b) + 256 * int(g)]):
             size = 260 if k == 0 else f.get("size", 120)
             cx = W / 2 if k == 0 else 80
-            out.append(Face(bbox=np.array([cx - size / 2, 100, cx + size / 2, 100 + size], np.float32),
-                            det_score=0.95, embedding=f["emb"], yaw=f.get("yaw", 0.0),
-                            pitch=0.0, ear=f.get("ear", 0.3), mar=f.get("mar", 0.1),
-                            extra={"spoof": f.get("spoof", 0.95)}))
+            face = Face(bbox=np.array([cx - size / 2, 100, cx + size / 2, 100 + size], np.float32),
+                        det_score=0.95, embedding=f["emb"] if embed else np.zeros(0, np.float32),
+                        yaw=f.get("yaw", 0.0), pitch=0.0, ear=f.get("ear", 0.3), mar=f.get("mar", 0.1),
+                        extra={"spoof": f.get("spoof", 0.95), "emb": f["emb"]})
+            out.append(face)
         return out
+
+    def embed_face(self, image, face):
+        """Haqiqiy analizatordagi kabi: embedding faqat so'ralganda hisoblanadi."""
+        self.embed_calls += 1
+        face.embedding = face.extra["emb"]
+        return face.embedding
 
 
 class MockPassive:
@@ -638,3 +646,13 @@ def test_other_cashier_cannot_see_request(env):
     kassa1, kassa2 = pair_cashier(env), pair_cashier(env)
     rq = kassa1.post("/v1/cashier/requests", {"amount": 1_700}).json()
     assert kassa2.post(f"/v1/cashier/requests/{rq['request_id']}", {}).status_code == 404
+
+
+def test_only_a_few_frames_get_embeddings(env):
+    """Tezlik kafolati: ArcFace (eng og'ir qadam) barcha kadrlar uchun emas, bir nechtasi uchun ishlaydi."""
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    env["mock"].embed_calls = 0
+    r = pay(env, me, 1_700)
+    assert r.json()["status"] == "approved"
+    assert env["mock"].embed_calls <= 8, env["mock"].embed_calls

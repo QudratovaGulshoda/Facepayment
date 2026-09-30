@@ -30,6 +30,7 @@ MAX_FRAMES = 60
 # Bir odamning turli burchakdagi kadrlari orasida ArcFace o'xshashligi odatda 0.5-0.9,
 # turli odamlar orasida 0-0.25. Har bir JUFT kadr tekshiriladi.
 IDENTITY_CONSISTENCY_MIN = 0.35
+MAX_EMBED_FRAMES = 6   # ArcFace eng og'ir qadam — faqat shuncha kadr uchun hisoblanadi
 
 _passive: PassiveLiveness | None = None
 
@@ -71,6 +72,12 @@ def decode_frame(b64: str) -> np.ndarray:
     return img
 
 
+def _embed(analyzer, image, face) -> np.ndarray:
+    if not face.embedding.size and hasattr(analyzer, "embed_face"):
+        analyzer.embed_face(image, face)
+    return normalize(face.embedding)
+
+
 def process_capture(frames_b64: list[str], timestamps_ms: list[int], challenge_steps: list[str]) -> CaptureResult:
     s = get_settings()
     if len(frames_b64) != len(timestamps_ms):
@@ -81,11 +88,12 @@ def process_capture(frames_b64: list[str], timestamps_ms: list[int], challenge_s
     analyzer = get_analyzer()
     passive = get_passive()
 
+    # 1-2. Har bir kadr: yuzni topish, bosh burchagi, ko'z/og'iz. Embedding hisoblanmaydi (tezlik uchun).
     images: list[np.ndarray] = []
     faces: list[Face] = []
     for b64 in frames_b64:
         img = decode_frame(b64)
-        face, err = select_primary_face(analyzer.analyze(img), img.shape)
+        face, err = select_primary_face(analyzer.analyze(img, embed=False), img.shape)
         if err:
             raise BiometricError(err)
         images.append(img)
@@ -103,14 +111,7 @@ def process_capture(frames_b64: list[str], timestamps_ms: list[int], challenge_s
         log.warning("liveness_faol rad: steps=%s reason=%s stats=%s", challenge_steps, active.reason, active.stats)
         raise BiometricError(f"liveness_faol:{active.reason}")
 
-    # 4. Shaxs izchilligi: HAR BIR juft kadr bir odamga tegishli bo'lishi kerak.
-    # (O'rtacha vektor bilan solishtirish yetarli emas: yarmi hujumchi, yarmi qurbon bo'lsa,
-    # o'rtacha vektor ikkalasiga ham ~0.7 o'xshash bo'lib qoladi.)
-    embs = np.stack([normalize(f.embedding) for f in faces])
-    if float((embs @ embs.T).min()) < IDENTITY_CONSISTENCY_MIN:
-        raise BiometricError("kadrlarda_turli_shaxs")
-
-    # 5-6. Old tomondan qaralgan kadrlar: sifat + passiv liveness
+    # 4. Sifat: old tomondan qaralgan kadrlar
     frontal = [k for k, f in enumerate(faces) if abs(f.yaw) <= s.max_yaw_deg and abs(f.pitch) <= s.max_pitch_deg]
     if len(frontal) < 2:
         raise BiometricError("old_kadrlar_kam")
@@ -120,20 +121,30 @@ def process_capture(frames_b64: list[str], timestamps_ms: list[int], challenge_s
         reasons = sorted({r for q in qualities.values() for r in q.reasons})
         raise BiometricError("sifat_past:" + ",".join(reasons))
 
-    passive_scores = [passive.score(images[k], faces[k]) for k in good]
-    # Median: bitta tasodifiy yaxshi kadr hujumchiga yordam bermasligi uchun
-    passive_score = float(np.median(passive_scores))
+    # 5. Passiv liveness: bir nechta sifatli kadrning medianasi
+    sample = sorted(good, key=lambda k: qualities[k].score, reverse=True)[:3]
+    passive_score = float(np.median([passive.score(images[k], faces[k]) for k in sample]))
     threshold = s.passive_liveness_threshold if passive.has_model else 0.45
     if passive_score < threshold:
         raise BiometricError("liveness_passiv")
 
-    best = sorted(good, key=lambda k: qualities[k].score, reverse=True)[:5]
+    # 6. Embedding FAQAT tanlangan kadrlar uchun: eng sifatli oldingi kadrlar + boshi va oxiri
+    # (boshi/oxiri shaxs izchilligini tekshirish uchun: kadrlar orasida yuzni almashtirib bo'lmaydi)
+    best = sorted(good, key=lambda k: qualities[k].score, reverse=True)[:MAX_EMBED_FRAMES - 2]
+    spread = [k for k in (0, len(faces) // 2, len(faces) - 1) if k not in best]
+    chosen = sorted(set(best) | set(spread[:2]))
+    embs = {k: _embed(analyzer, images[k], faces[k]) for k in chosen}
+
+    # 7. Shaxs izchilligi: har bir JUFT kadr bir odamga tegishli bo'lishi kerak
+    matrix = np.stack([embs[k] for k in chosen])
+    if float((matrix @ matrix.T).min()) < IDENTITY_CONSISTENCY_MIN:
+        raise BiometricError("kadrlarda_turli_shaxs")
+
     embedding = normalize(np.mean([embs[k] for k in best], axis=0))
 
-    # Ro'yxatdan o'tish uchun: turli burchaklardagi (burilgan) kadrlar ham foydali,
-    # ular profil holatda tanib olishni yaxshilaydi
-    turned = [k for k in range(len(faces)) if k not in frontal and faces[k].det_score > 0.7]
-    extra = [embs[k] for k in turned[:2]]
+    # Ro'yxatdan o'tish uchun: burilgan kadr ham foydali (profil holatda tanib olish yaxshilanadi)
+    turned = [k for k, f in enumerate(faces) if k not in frontal and f.det_score > 0.7]
+    extra = [_embed(analyzer, images[turned[len(turned) // 2]], faces[turned[len(turned) // 2]])] if turned else []
 
     return CaptureResult(
         embedding=embedding,

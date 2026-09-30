@@ -61,15 +61,18 @@ def _aspect_ratio(pts: np.ndarray) -> float:
 
 
 class InsightFaceAnalyzer:
-    def __init__(self, model_name: str = "buffalo_l", det_size: int = 640, use_mediapipe: bool = True):
+    """Tezlik uchun ikki bosqichli ishlash.
+
+    Har bir kadr uchun kerak bo'lgani — yuz joyi, bosh burchagi, ko'z/og'iz holati (liveness).
+    Bular arzon: SCRFD 320x320 (~40 ms) + MediaPipe (~16 ms).
+    ArcFace embedding og'ir (~230 ms), shuning uchun u FAQAT tanlangan bir nechta kadr uchun
+    hisoblanadi (pipeline.py). MediaPipe bo'lmasa, bosh burchagi uchun InsightFace ning
+    landmark_3d_68 modeli yuklanadi (sekinroq).
+    """
+
+    def __init__(self, model_name: str = "buffalo_l", det_size: int = 320, use_mediapipe: bool = True):
         from insightface.app import FaceAnalysis  # og'ir import — faqat kerak bo'lganda
 
-        self._app = FaceAnalysis(
-            name=model_name,
-            allowed_modules=["detection", "recognition", "landmark_3d_68"],
-            providers=["CPUExecutionProvider"],
-        )
-        self._app.prepare(ctx_id=-1, det_size=(det_size, det_size))
         self._mesh = None
         if use_mediapipe and os.path.exists(FACE_LANDMARKER_MODEL):
             try:
@@ -77,28 +80,65 @@ class InsightFaceAnalyzer:
 
                 self._mesh = vision.FaceLandmarker.create_from_options(vision.FaceLandmarkerOptions(
                     base_options=BaseOptions(model_asset_path=FACE_LANDMARKER_MODEL, delegate=BaseOptions.Delegate.CPU),
-                    num_faces=3, output_face_blendshapes=True))
+                    num_faces=3, output_face_blendshapes=True, output_facial_transformation_matrixes=True))
             except Exception as e:  # pragma: no cover
-                log.warning("MediaPipe yuklanmadi, ko'z qisish tekshiruvi o'chirildi: %s", e)
+                log.warning("MediaPipe yuklanmadi: %s", e)
         elif use_mediapipe:
             log.warning("%s topilmadi — ko'z qisish/og'iz ochish sinovlari o'chirildi", FACE_LANDMARKER_MODEL)
+
+        modules = ["detection", "recognition"] + ([] if self._mesh else ["landmark_3d_68"])
+        self._app = FaceAnalysis(name=model_name, allowed_modules=modules, providers=["CPUExecutionProvider"])
+        self._app.prepare(ctx_id=-1, det_size=(det_size, det_size))
+        self._det = self._app.models["detection"]
+        self._rec = self._app.models["recognition"]
+        self._pose_model = self._app.models.get("landmark_3d_68")
 
     @property
     def supports_eye_mouth(self) -> bool:
         return self._mesh is not None
 
-    def analyze(self, image_bgr: np.ndarray) -> list[Face]:
-        faces = []
-        for f in self._app.get(image_bgr):
-            emb = f.normed_embedding.astype(np.float32)
-            pitch, yaw, roll = (f.pose if getattr(f, "pose", None) is not None else (0.0, 0.0, 0.0))
-            faces.append(Face(bbox=f.bbox.astype(np.float32), det_score=float(f.det_score),
-                              embedding=emb, yaw=float(yaw), pitch=float(pitch), roll=float(roll)))
-        if self._mesh is not None and faces:
-            self._attach_eye_mouth(image_bgr, faces)
+    def analyze(self, image_bgr: np.ndarray, embed: bool = True) -> list[Face]:
+        """embed=False — faqat liveness uchun kerakli ma'lumot (embedding hisoblanmaydi)."""
+        from insightface.app.common import Face as IFace
+
+        bboxes, kpss = self._det.detect(image_bgr, max_num=0, metric="default")
+        faces, raw = [], []
+        for k in range(bboxes.shape[0]):
+            src = IFace(bbox=bboxes[k, :4], kps=kpss[k] if kpss is not None else None, det_score=bboxes[k, 4])
+            face = Face(bbox=bboxes[k, :4].astype(np.float32), det_score=float(bboxes[k, 4]),
+                        embedding=np.zeros(0, dtype=np.float32))
+            face.extra["kps"] = src.kps
+            if embed:
+                self._rec.get(image_bgr, src)
+                face.embedding = src.normed_embedding.astype(np.float32)
+            faces.append(face)
+            raw.append(src)
+
+        if not faces:
+            return faces
+        if self._mesh is not None:
+            self._attach_mediapipe(image_bgr, faces)
+        elif self._pose_model is not None:  # zaxira yo'l
+            for face, src in zip(faces, raw):
+                self._pose_model.get(image_bgr, src)
+                if getattr(src, "pose", None) is not None:
+                    face.pitch, face.yaw, face.roll = (float(v) for v in src.pose)
         return faces
 
-    def _attach_eye_mouth(self, image_bgr: np.ndarray, faces: list[Face]) -> None:
+    def embed_face(self, image_bgr: np.ndarray, face: Face) -> np.ndarray:
+        """Tanlangan kadr uchun ArcFace embedding (eng og'ir qadam, ~230 ms)."""
+        from insightface.app.common import Face as IFace
+
+        src = IFace(bbox=np.asarray(face.bbox, dtype=np.float32), kps=face.extra.get("kps"),
+                    det_score=face.det_score)
+        self._rec.get(image_bgr, src)
+        face.embedding = src.normed_embedding.astype(np.float32)
+        return face.embedding
+
+    def _attach_mediapipe(self, image_bgr: np.ndarray, faces: list[Face]) -> None:
+        """Ko'z/og'iz holati, blendshape'lar va bosh burchagi (InsightFace pose bilan bir xil konvensiya)."""
+        import math
+
         import cv2
         import mediapipe as mp
 
@@ -108,15 +148,21 @@ class InsightFaceAnalyzer:
         for k, lm in enumerate(res.face_landmarks):
             pts = np.array([[p.x * w, p.y * h] for p in lm], dtype=np.float32)
             cx, cy = pts[:, 0].mean(), pts[:, 1].mean()
-            # FaceMesh natijasini markazi bbox ichiga tushgan InsightFace yuziga bog'laymiz
+            # MediaPipe natijasini markazi bbox ichiga tushgan yuzga bog'laymiz
             for face in faces:
                 x1, y1, x2, y2 = face.bbox
-                if x1 <= cx <= x2 and y1 <= cy <= y2:
-                    face.ear = (_aspect_ratio(pts[_LEFT_EYE]) + _aspect_ratio(pts[_RIGHT_EYE])) / 2
-                    face.mar = _aspect_ratio(pts[_MOUTH])
-                    if res.face_blendshapes:
-                        face.extra["blendshapes"] = {c.category_name: c.score for c in res.face_blendshapes[k]}
-                    break
+                if not (x1 <= cx <= x2 and y1 <= cy <= y2):
+                    continue
+                face.ear = (_aspect_ratio(pts[_LEFT_EYE]) + _aspect_ratio(pts[_RIGHT_EYE])) / 2
+                face.mar = _aspect_ratio(pts[_MOUTH])
+                if res.face_blendshapes:
+                    face.extra["blendshapes"] = {c.category_name: c.score for c in res.face_blendshapes[k]}
+                if k < len(res.facial_transformation_matrixes):
+                    R = np.array(res.facial_transformation_matrixes[k])[:3, :3]
+                    face.yaw = math.degrees(math.atan2(-R[2, 0], math.hypot(R[0, 0], R[1, 0])))
+                    face.pitch = -math.degrees(math.atan2(R[2, 1], R[2, 2]))  # InsightFace bilan bir xil ishora
+                    face.roll = math.degrees(math.atan2(R[1, 0], R[0, 0]))
+                break
 
 
 _analyzer: FaceAnalyzer | None = None

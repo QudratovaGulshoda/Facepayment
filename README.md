@@ -7,7 +7,8 @@ Bitiruv malakaviy ishi uchun loyiha.
 
 | Talab | Qanday amalga oshirilgan |
 |---|---|
-| **Yuzni tanish** | InsightFace: SCRFD (yuz topish) + ArcFace buffalo_l (512 o'lchamli vektor) |
+| **Yuzni tanish** | InsightFace: SCRFD 320x320 (yuz topish) + ArcFace buffalo_l (512 o'lchamli vektor) |
+| **Tezlik** | Har bir kadrda faqat arzon tekshiruvlar (~80 ms); og'ir ArcFace (~115 ms) faqat 6 ta tanlangan kadrda. To'lov ~3 s da hisoblanadi |
 | **Tirik odamni tekshirish** | Faol sinov (server tasodifiy tanlagan harakatlar: ko'z qisish, bosh burish, og'iz ochish) + passiv MiniFASNetV2 modeli |
 | **Yosh o'zgarishi** | Bir odamda bir nechta shablon, ishonchli to'lovlardan keyin shablon asta-sekin yangilanadi (EMA), ball pasaysa qayta ro'yxatdan o'tish taklif qilinadi |
 | **Makiyaj, ko'zoynak, soqol** | Qo'shimcha "variant" shablon (PIN bilan tasdiqlanadi) + yangi ko'rinish avtomatik alohida shablon sifatida qo'shiladi |
@@ -38,7 +39,7 @@ Bitiruv malakaviy ishi uchun loyiha.
 ### To'lov jarayoni
 
 1. Terminal `POST /v1/liveness/challenge` so'rovini yuboradi. Server tasodifiy harakatlarni qaytaradi, masalan `["blink", "turn_right"]`. Sinov 30 soniya amal qiladi va faqat bir marta ishlatiladi.
-2. Ekranda "Ko'zingizni qising → Boshingizni o'ngga buring" chiqadi. Kamera taxminan 5 soniyada 10–38 ta kadr oladi.
+2. Ekranda bitta tasodifiy ko'rsatma chiqadi, masalan "Ko'zingizni qising". Kamera ~3.4 soniyada 24 tagacha kadr oladi.
 3. `POST /v1/payments` so'rovi kadrlarni, summani va idempotentlik kalitini olib boradi. Server quyidagilarni bajaradi:
    - har bir kadrda **bitta asosiy yuz** borligini tekshiradi (orqada turgan boshqa yo'lovchi to'lovchi deb olinmaydi);
    - harakatlar **to'g'ri tartibda** bajarilganini tekshiradi;
@@ -259,6 +260,7 @@ tests/                       56 ta test
 
 - **3D silikon niqob:** oddiy RGB kamera bilan to'liq aniqlab bo'lmaydi. Real turniketlarda IQ (infraqizil) yoki chuqurlik kamerasi (masalan, Intel RealSense) qo'shiladi.
 - **Chegaralarni kalibrlash:** 0.45 / 0.60 / 0.08 qiymatlari ArcFace uchun odatiy qiymatlar. Ularni mahalliy (O'zbekiston aholisi) ma'lumotlari asosida `scripts/evaluate.py` bilan qayta kalibrlash kerak.
+- **Tezlik va xavfsizlik muvozanati:** tez bo'lishi uchun faol sinovda bitta tasodifiy harakat so'raladi (4 xil harakatdan). Xavfsizroq, lekin sekinroq variant uchun `FACEPAY_CHALLENGE_STEPS=2`.
 - **Masshtab:** galereya RAM'da saqlanadi (numpy). Millionlab foydalanuvchi uchun FAISS/HNSW indeks, PostgreSQL, Redis (nonce va rate limit) kerak bo'ladi.
 - **Kalitlarni boshqarish:** master kalit `.env` da turibdi. Prod muhitda HSM yoki KMS ishlatiladi, kalitlar muntazam almashtiriladi (versiya maydoni tayyor).
 - **Passiv liveness:** MiniFASNetV2 ochiq ma'lumotlarda o'qitilgan. Real kamera va yoritish sharoitida qo'shimcha o'qitish (fine-tuning) aniqlikni oshiradi. Model yo'q bo'lsa ishlatiladigan evristika zaif, uni faqat demo uchun ishlatish mumkin.

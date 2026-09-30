@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # --- Tirik ekanligini tekshirish (liveness) ---
     challenge_ttl_seconds: int = 30
-    challenge_steps: int = 2            # tasodifiy harakatlar soni (ko'z qisish, bosh burish ...)
+    challenge_steps: int = 1            # tasodifiy harakat (ko'z qisish / og'iz ochish / bosh burish)
     passive_liveness_threshold: float = 0.70
     min_frames: int = 8
 
