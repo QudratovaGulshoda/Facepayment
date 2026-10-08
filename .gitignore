@@ -8,3 +8,5 @@ models/*.task
 .pytest_cache/
 .deploy_secrets.json
 bin/
+.tmp_screens/
+.tmp_chk/
