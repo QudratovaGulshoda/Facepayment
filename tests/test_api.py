@@ -533,7 +533,7 @@ def test_kassa_sees_own_transactions_and_today_total(env):
 
 
 def test_pages_served(env):
-    for path, marker in (("/", "Shaxsiy kabinet"), ("/kassa", "FacePay kassa"), ("/ekran", "Mijoz ekrani"),
+    for path, marker in (("/", "Shaxsiy kabinet"), ("/kassa", "FacePay kassa"), ("/ekran", "Mijoz ekrani"), ("/turniket", "FacePay turniket"),
                          ("/static/common.js", "Camera"), ("/static/style.css", ":root")):
         r = env["http"].get(path)
         assert r.status_code == 200 and marker in r.text, path
@@ -656,3 +656,32 @@ def test_only_a_few_frames_get_embeddings(env):
     r = pay(env, me, 1_700)
     assert r.json()["status"] == "approved"
     assert env["mock"].embed_calls <= 8, env["mock"].embed_calls
+
+
+# ---------------- Metro turniketi (kassirsiz, qat'iy narx) ----------------
+
+def turnstile_terminal(env, fare=1_700):
+    key = Ed25519PrivateKey.generate()
+    m = env["http"].post("/v1/admin/merchants", json={"name": "Metro Chilonzor"}, headers=ADMIN).json()
+    r = env["http"].post("/v1/admin/terminals", headers=ADMIN, json={
+        "name": "turniket-1", "merchant_id": m["merchant_id"], "public_key_b64": public_key_b64(key),
+        "role": "payment", "fixed_amount": fare})
+    assert r.status_code == 201, r.text
+    return TerminalClient("", r.json()["terminal_id"], key, http=env["http"])
+
+
+def test_turnstile_charges_fixed_fare(env):
+    """Turniket yuborgan summa e'tiborga olinmaydi — narx serverda saqlanadi."""
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    gate = turnstile_terminal(env, fare=1_700)
+    r = gate.post("/v1/payments", {**capture(env, gate, me), "amount": 1, "idempotency_key": uuid.uuid4().hex})
+    assert r.json()["status"] == "approved" and r.json()["amount"] == 1_700
+    big = gate.post("/v1/payments", {**capture(env, gate, me), "amount": 900_000, "idempotency_key": uuid.uuid4().hex})
+    assert big.json()["amount"] == 1_700
+
+
+def test_normal_terminal_still_uses_requested_amount(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    assert pay(env, me, 2_500).json()["amount"] == 2_500

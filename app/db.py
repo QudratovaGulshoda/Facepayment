@@ -118,6 +118,9 @@ class Terminal(Base):
     merchant_id: Mapped[str | None] = mapped_column(ForeignKey("merchants.id"), nullable=True)
     public_key_b64: Mapped[str] = mapped_column(String(64))
     role: Mapped[str] = mapped_column(String(16), default="payment")  # payment | enroll | cashier | portal
+    # Turniket kabi qat'iy narxli qurilmalar uchun: summa SERVERDA saqlanadi,
+    # qurilma yuborgan summa e'tiborga olinmaydi
+    fixed_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -211,6 +214,24 @@ _engine = None
 _SessionLocal = None
 
 
+def _add_missing_columns(engine) -> None:
+    """Oddiy migratsiya: modelda bor, bazada yo'q ustunlarni qo'shadi (hech narsa o'chirilmaydi)."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    existing_tables = set(insp.get_table_names())
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have:
+                    continue
+                ddl = col.type.compile(engine.dialect)
+                conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'))
+
+
 def init_engine(url: str | None = None):
     global _engine, _SessionLocal
     url = url or get_settings().database_url
@@ -222,6 +243,7 @@ def init_engine(url: str | None = None):
     _engine = create_engine(url, **kwargs)
     _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
     Base.metadata.create_all(_engine)
+    _add_missing_columns(_engine)
     return _engine
 
 

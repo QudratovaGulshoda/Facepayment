@@ -159,6 +159,12 @@ def merchant_kassa():
     return FileResponse(STATIC_DIR / "kassa.html")
 
 
+@app.get("/turniket", include_in_schema=False)
+def turnstile():
+    """Metro turniketi: kassirsiz, qat'iy narx (narx serverda saqlanadi)."""
+    return FileResponse(STATIC_DIR / "turniket.html")
+
+
 @app.get("/ekran", include_in_schema=False)
 def customer_display():
     """Mijozga qaragan ekran: summa, kamera, PIN."""
@@ -493,10 +499,11 @@ def create_merchant(data: MerchantIn, db: Session = Depends(get_session)):
 def create_terminal(data: TerminalIn, db: Session = Depends(get_session)):
     if data.role == "payment" and not (data.merchant_id and db.get(Merchant, data.merchant_id)):
         raise HTTPException(400, "sotuvchi_topilmadi")
-    t = Terminal(name=data.name, merchant_id=data.merchant_id, public_key_b64=data.public_key_b64, role=data.role)
+    t = Terminal(name=data.name, merchant_id=data.merchant_id, public_key_b64=data.public_key_b64,
+                 role=data.role, fixed_amount=data.fixed_amount)
     db.add(t)
     db.flush()
-    audit(db, "admin", "terminal_created", terminal_id=t.id, role=data.role)
+    audit(db, "admin", "terminal_created", terminal_id=t.id, role=data.role, fixed_amount=data.fixed_amount)
     db.commit()
     return {"terminal_id": t.id}
 

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FacePay turniket</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .fare { text-align: center; font-size: 15px; color: var(--muted); }
+  .fare b { font-size: 26px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .gate { text-align: center; padding: 22px 16px; }
+  .gate .icon { font-size: 54px; line-height: 1; }
+  .gate .title { font-size: 24px; font-weight: 700; margin-top: 8px; }
+  .gate .detail { color: var(--muted); margin-top: 6px; font-size: 15px; }
+  .gate.ok .title { color: var(--ok); }
+  .gate.err .title { color: var(--err); }
+  button.huge { width: 100%; margin-top: 14px; padding: 22px; border: 0; border-radius: 14px;
+                background: var(--accent); color: var(--accent-text); font-size: 20px; font-weight: 700; cursor: pointer; }
+  .counter { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>FacePay turniket</h1>
+    <span class="sub" id="station"></span>
+  </header>
+
+  <!-- Bir marta: qurilmani ro'yxatdan o'tkazish -->
+  <section id="setup" hidden>
+    <h2>Turniketni ro'yxatdan o'tkazish</h2>
+    <p class="muted">Kassirsiz rejim: narx serverda saqlanadi, turniket uni o'zgartira olmaydi.</p>
+    <label for="st-name">Bekat nomi</label>
+    <input id="st-name" value="Metro — Chilonzor">
+    <label for="st-fare">Chipta narxi (so'm)</label>
+    <input id="st-fare" type="number" inputmode="numeric" value="1700" min="1">
+    <label for="st-admin">Admin kaliti</label>
+    <input id="st-admin" type="password" autocomplete="off">
+    <button class="primary" id="st-btn">Ro'yxatdan o'tkazish</button>
+    <div class="result" id="st-result" hidden></div>
+  </section>
+
+  <div id="gate-ui" hidden>
+    <div class="cam" id="cam"><video id="video" playsinline muted></video><div class="prompt" id="prompt">Kamera</div></div>
+    <section>
+      <p class="fare">Chipta narxi<br><b id="fare"></b></p>
+      <button class="huge" id="pass-btn">O'tish — yuzni ko'rsating</button>
+      <div class="gate" id="gate" hidden>
+        <div class="icon" id="gate-icon"></div>
+        <div class="title" id="gate-title"></div>
+        <div class="detail" id="gate-detail"></div>
+      </div>
+      <div class="counter"><span>Bugun o'tganlar: <b id="count">0</b></span><span>Tushum: <b id="total">0</b> so'm</span></div>
+    </section>
+    <footer><button class="link" id="reset-btn" style="color:var(--muted)">Turniketni qayta sozlash</button></footer>
+  </div>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+"use strict";
+Camera.attach($("#video"), $("#prompt"));
+const device = Device("turniket");
+
+// ---------- Sozlash ----------
+$("#st-btn").onclick = (e) => busy(e.target, async () => {
+  const k = await newDeviceKey();
+  if (!k) return show("#st-result", "err", errText("ed25519"));
+  const H = { "X-Admin-Key": $("#st-admin").value };
+  const name = $("#st-name").value.trim() || "Metro";
+  const fare = parseInt($("#st-fare").value, 10);
+  let r = await postJSON("/v1/admin/merchants", { name }, H);
+  if (r.status !== 201) return show("#st-result", "err", errText(codeOf(r)));
+  r = await postJSON("/v1/admin/terminals", { name: `turniket-${name}`.slice(0, 120), merchant_id: r.data.merchant_id,
+                                              public_key_b64: k.pub, role: "payment", fixed_amount: fare }, H);
+  if (r.status !== 201) return show("#st-result", "err", errText(codeOf(r)));
+  await device.save({ id: r.data.terminal_id, name, fare }, k.pair.privateKey);
+  $("#st-admin").value = "";
+  render();
+});
+$("#reset-btn").onclick = () => { if (confirm("Turniket qayta ro'yxatdan o'tkaziladi. Davom etasizmi?")) device.forget(); };
+device.onForget = () => { Camera.stop(); render(); };
+
+// ---------- O'tish ----------
+function gate(kind, icon, title, detail) {
+  $("#gate").hidden = false;
+  $("#gate").className = "gate " + kind;
+  $("#gate-icon").textContent = icon;
+  $("#gate-title").textContent = title;
+  $("#gate-detail").textContent = detail || "";
+  setTimeout(() => { $("#gate").hidden = true; }, 5000);
+}
+
+$("#pass-btn").onclick = (e) => busy(e.target, async () => {
+  $("#gate").hidden = true;
+  // Summa serverdagi qat'iy narxdan olinadi; bu yerdagi qiymat faqat ko'rsatish uchun
+  const r = await Camera.run(() => device.post("/v1/liveness/challenge", {}),
+    (cap) => device.post("/v1/payments", { ...cap, amount: device.conf().fare,
+                                           idempotency_key: hex(crypto.getRandomValues(new Uint8Array(16))) }));
+  if (r.status !== 200) return gate("err", "✕", "O'tish mumkin emas", errText(codeOf(r)));
+  const d = r.data;
+  if (d.status === "approved") {
+    gate("ok", "✓", "Marhamat, o'ting", `${d.customer} · ${fmt(d.amount)} so'm`);
+  } else if (d.status === "pending_pin") {
+    // Turniketda PIN kiritilmaydi — chipta yoki karta bilan o'tish taklif qilinadi
+    gate("err", "✕", "Tasdiqlash kerak", "Kassaga murojaat qiling yoki karta bilan o'ting");
+  } else {
+    gate("err", "✕", "O'tish mumkin emas", errText(d.reason));
+  }
+  loadCounters();
+});
+
+async function loadCounters() {
+  const r = await device.post("/v1/terminal/transactions", {});
+  if (r.status !== 200) return;
+  const ok = r.data.transactions.filter((t) => t.status === "approved").length;
+  $("#count").textContent = ok;
+  $("#total").textContent = fmt(r.data.today_total);
+}
+
+function render() {
+  const c = device.conf();
+  $("#setup").hidden = !!c;
+  $("#gate-ui").hidden = !c;
+  $("#station").textContent = c ? c.name : "";
+  if (c) { $("#fare").textContent = fmt(c.fare) + " so'm"; loadCounters(); Camera.start().catch(() => {}); }
+}
+render();
+</script>
+</body>
+</html>

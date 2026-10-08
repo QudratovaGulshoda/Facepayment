@@ -125,6 +125,8 @@ def create_payment(db: Session, terminal: Terminal, idempotency_key: str, amount
         Transaction.terminal_id == terminal.id, Transaction.idempotency_key == idempotency_key)).first()
     if existing:
         return existing, {}
+    if terminal.fixed_amount:
+        amount = terminal.fixed_amount  # turniket: narxni qurilma emas, server belgilaydi
     if amount <= 0:
         raise ServiceError("summa_notogri")
     if not terminal.merchant_id:
