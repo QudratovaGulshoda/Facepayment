@@ -70,7 +70,8 @@ class InsightFaceAnalyzer:
     landmark_3d_68 modeli yuklanadi (sekinroq).
     """
 
-    def __init__(self, model_name: str = "buffalo_l", det_size: int = 320, use_mediapipe: bool = True):
+    def __init__(self, model_name: str = "buffalo_l", det_size: int = 320, use_mediapipe: bool = True,
+                 with_pose: bool = True):
         from insightface.app import FaceAnalysis  # og'ir import — faqat kerak bo'lganda
 
         self._mesh = None
@@ -86,7 +87,10 @@ class InsightFaceAnalyzer:
         elif use_mediapipe:
             log.warning("%s topilmadi — ko'z qisish/og'iz ochish sinovlari o'chirildi", FACE_LANDMARKER_MODEL)
 
-        modules = ["detection", "recognition"] + ([] if self._mesh else ["landmark_3d_68"])
+        # Bosh burchagi MediaPipe dan olinadi; u bo'lmasa — og'ir landmark_3d_68 (~185 ms).
+        # with_pose=False: poza kerak emas (masalan, aniqlikni baholash skripti) — tezroq ishlaydi.
+        need_landmark = with_pose and self._mesh is None
+        modules = ["detection", "recognition"] + (["landmark_3d_68"] if need_landmark else [])
         self._app = FaceAnalysis(name=model_name, allowed_modules=modules, providers=["CPUExecutionProvider"])
         self._app.prepare(ctx_id=-1, det_size=(det_size, det_size))
         self._det = self._app.models["detection"]

@@ -28,9 +28,11 @@ from app.biometrics.analyzer import InsightFaceAnalyzer  # noqa: E402
 
 
 def embed_dataset(root: Path, max_per_person: int) -> dict[str, list[np.ndarray]]:
-    analyzer = InsightFaceAnalyzer(use_mediapipe=False)
+    analyzer = InsightFaceAnalyzer(use_mediapipe=False, with_pose=False)  # bu yerda faqat embedding kerak
     out: dict[str, list[np.ndarray]] = {}
-    for person in sorted(p for p in root.iterdir() if p.is_dir()):
+    people = sorted(p for p in root.iterdir() if p.is_dir())
+    done = 0
+    for n, person in enumerate(people, 1):
         embs = []
         for img_path in sorted(person.glob("*"))[:max_per_person]:
             img = cv2.imread(str(img_path))
@@ -41,6 +43,9 @@ def embed_dataset(root: Path, max_per_person: int) -> dict[str, list[np.ndarray]
                 embs.append(max(faces, key=lambda f: f.area).embedding)
         if embs:
             out[person.name] = embs
+        done += len(embs)
+        if n % 100 == 0 or n == len(people):
+            print(f"  ... {n}/{len(people)} shaxs, {done} ta surat", flush=True)
     return out
 
 
@@ -102,6 +107,37 @@ def main() -> None:
         w.writerow(["threshold", "FAR", "FRR"])
         w.writerows(rows)
     print(f"CSV: {a.out}")
+    _plot(rows, genuine, impostor, a.out.with_suffix(".png"))
+
+
+def _plot(rows, genuine, impostor, path: Path) -> None:
+    """Diplomning 'Tajriba natijalari' bo'limi uchun ikkita grafik."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return
+    t = [r[0] for r in rows]
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+    ax1.plot(t, [r[1] for r in rows], label="FAR (begonani qabul qilish)")
+    ax1.plot(t, [r[2] for r in rows], label="FRR (o'zini rad etish)")
+    ax1.axvline(0.45, ls="--", lw=1, color="gray")
+    ax1.annotate("joriy chegara 0.45", (0.45, 0.5), rotation=90, va="center", fontsize=8, color="gray")
+    ax1.set_xlabel("Chegara (cosine)")
+    ax1.set_ylabel("Xato ulushi")
+    ax1.set_yscale("log")
+    ax1.legend(fontsize=9)
+    ax1.set_title("FAR va FRR")
+    ax2.hist(impostor, bins=60, alpha=0.65, label="turli odamlar", density=True)
+    ax2.hist(genuine, bins=60, alpha=0.65, label="bir odam", density=True)
+    ax2.axvline(0.45, ls="--", lw=1, color="gray")
+    ax2.set_xlabel("Cosine o'xshashlik")
+    ax2.set_title("O'xshashliklar taqsimoti")
+    ax2.legend(fontsize=9)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    print(f"Grafik: {path}")
 
 
 if __name__ == "__main__":
