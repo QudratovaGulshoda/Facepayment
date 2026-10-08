@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.core import audit, get_core
 from app.db import Card, Terminal, User, new_id
 from app.gateway import GatewayError, get_gateway
-from app.services.users import ServiceError, find_user_by_phone, verify_user_pin
+from app.services.users import ServiceError, find_user_by_phone, user_for_pin
 
 
 def _aad(user_id: str, card_id: str) -> str:
@@ -26,13 +26,6 @@ def card_token(card: Card) -> str:
     return get_core().crypto.decrypt_str(card.token_enc, _aad(card.user_id, card.id))
 
 
-def _user(db: Session, phone: str) -> User:
-    user = find_user_by_phone(db, phone)
-    if not user:
-        raise ServiceError("topilmadi", 404)
-    return user
-
-
 def mask_phone(phone: str) -> str:
     """+998948431011 -> +99894*****11"""
     return phone[:6] + "*" * max(len(phone) - 8, 0) + phone[-2:]
@@ -40,8 +33,7 @@ def mask_phone(phone: str) -> str:
 
 def add_card(db: Session, terminal: Terminal, phone: str, pin: str, number: str, expire: str) -> tuple[Card, str]:
     s = get_settings()
-    user = _user(db, phone)
-    verify_user_pin(db, user, pin)
+    user = user_for_pin(db, phone, pin)
     count = db.scalar(select(func.count()).select_from(Card).where(Card.user_id == user.id))
     if count >= s.max_cards_per_user:
         raise ServiceError("kartalar_soni_limit", 409)
@@ -64,7 +56,9 @@ def add_card(db: Session, terminal: Terminal, phone: str, pin: str, number: str,
 
 def verify_card(db: Session, terminal: Terminal, card_id: str, phone: str, code: str) -> Card:
     s = get_settings()
-    user = _user(db, phone)
+    user = find_user_by_phone(db, phone)
+    if not user or user.status != "active":
+        raise ServiceError("karta_topilmadi", 404)
     card = db.get(Card, card_id)
     if not card or card.user_id != user.id:
         raise ServiceError("karta_topilmadi", 404)
@@ -93,15 +87,13 @@ def verify_card(db: Session, terminal: Terminal, card_id: str, phone: str, code:
 
 
 def list_cards(db: Session, phone: str, pin: str) -> list[Card]:
-    user = _user(db, phone)
-    verify_user_pin(db, user, pin)
+    user = user_for_pin(db, phone, pin)
     db.commit()
     return list(db.scalars(select(Card).where(Card.user_id == user.id).order_by(Card.created_at)))
 
 
 def set_default(db: Session, terminal: Terminal, card_id: str, phone: str, pin: str) -> Card:
-    user = _user(db, phone)
-    verify_user_pin(db, user, pin)
+    user = user_for_pin(db, phone, pin)
     card = db.get(Card, card_id)
     if not card or card.user_id != user.id or not card.verified:
         raise ServiceError("karta_topilmadi", 404)
@@ -113,8 +105,7 @@ def set_default(db: Session, terminal: Terminal, card_id: str, phone: str, pin: 
 
 
 def remove_card(db: Session, terminal: Terminal, card_id: str, phone: str, pin: str) -> None:
-    user = _user(db, phone)
-    verify_user_pin(db, user, pin)
+    user = user_for_pin(db, phone, pin)
     card = db.get(Card, card_id)
     if not card or card.user_id != user.id:
         raise ServiceError("karta_topilmadi", 404)

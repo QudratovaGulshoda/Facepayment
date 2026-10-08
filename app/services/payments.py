@@ -21,7 +21,8 @@ from app.core import audit, get_core
 from app.db import Card, FaceTemplate, MatchEvent, Merchant, Terminal, Transaction, User, new_id, utcnow
 from app.gateway import GatewayError, get_gateway
 from app.services.cards import card_token
-from app.services.users import ServiceError, check_not_locked, mask_name, verify_user_pin
+from app.services.users import (ServiceError, check_account_active, check_not_locked, mask_name,
+                                user_for_pin, verify_user_pin)
 
 PIN_WINDOW_SECONDS = 60
 MAX_PIN_ATTEMPTS_PER_TX = 3
@@ -146,7 +147,7 @@ def create_payment(db: Session, terminal: Terminal, idempotency_key: str, amount
     user = db.get(User, result.user_id)
     tx.user_id = user.id
     try:
-        check_not_locked(user)
+        check_account_active(user)
     except ServiceError as e:
         return _decline(db, tx, e.code), {}
 
@@ -158,6 +159,10 @@ def create_payment(db: Session, terminal: Terminal, idempotency_key: str, amount
     info = {"customer": name, "reenroll_recommended": reenroll}
 
     if amount > s.face_only_limit or decision.borderline or reenroll:
+        try:
+            check_not_locked(user)  # PIN kerak bo'lgan to'lov: PIN bloki shu yerda tekshiriladi
+        except ServiceError as e:
+            return _decline(db, tx, e.code), info
         tx.status = "pending_pin"
         tx.expires_at = now + timedelta(seconds=PIN_WINDOW_SECONDS)
         audit(db, f"terminal:{terminal.id}", "payment_pin_required", tx_id=tx.id,
@@ -202,12 +207,7 @@ def _tx_row(tx: Transaction, merchant_name: str | None = None) -> dict:
 
 def user_history(db: Session, phone: str, pin: str, limit: int = 20) -> list[dict]:
     """Mijozning o'z to'lovlari (PIN bilan). Rad etilgan urinishlar ham ko'rinadi — begona urinishni sezish uchun."""
-    from app.services.users import find_user_by_phone
-
-    user = find_user_by_phone(db, phone)
-    if not user:
-        raise ServiceError("topilmadi", 404)
-    verify_user_pin(db, user, pin)
+    user = user_for_pin(db, phone, pin)
     db.commit()
     q = (select(Transaction, Merchant.name).join(Merchant, Merchant.id == Transaction.merchant_id)
          .where(Transaction.user_id == user.id).order_by(Transaction.created_at.desc()).limit(limit))

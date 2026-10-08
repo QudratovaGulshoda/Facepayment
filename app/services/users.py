@@ -43,16 +43,48 @@ def find_user_by_phone(db: Session, phone: str) -> User | None:
     return db.scalars(select(User).where(User.phone_hash == get_core().crypto.lookup_hash(phone))).first()
 
 
-def check_not_locked(user: User) -> None:
+def user_for_pin(db: Session, phone: str, pin: str) -> User:
+    """Telefon + PIN bilan kirish. Telefon ro'yxatda yo'qligi oshkor qilinmaydi:
+    noto'g'ri telefon ham, noto'g'ri PIN ham bir xil javob beradi (hisob qidirish hujumiga qarshi)."""
+    core = get_core()
+    user = find_user_by_phone(db, phone)
+    if not user or user.status != "active":
+        pin_attempt_allowed(core.crypto.lookup_hash(phone))
+        raise ServiceError("telefon_yoki_pin_notogri", 401)
+    try:
+        verify_user_pin(db, user, pin)
+    except ServiceError as e:
+        raise ServiceError("telefon_yoki_pin_notogri", 401) if e.code == "pin_notogri" else e
+    return user
+
+
+def check_account_active(user: User) -> None:
+    """Hisob umuman ishlayaptimi (o'chirilgan yoki bloklangan emasmi)."""
     if user.status != "active":
         raise ServiceError("foydalanuvchi_faol_emas", 403)
+
+
+def check_not_locked(user: User) -> None:
+    """PIN bloki. DIQQAT: bu blok faqat PIN talab qiladigan amallarga tegishli.
+
+    Yuz bilan kichik to'lovlar bloklanmaydi: aks holda telefon raqamini bilgan begona odam
+    ochiq saytda PIN'ni ataylab xato kiritib, odamni metroda o'tolmaydigan qilib qo'yardi.
+    """
+    check_account_active(user)
     if user.locked_until and user.locked_until > utcnow():
         raise ServiceError("vaqtincha_bloklangan", 423)
+
+
+def pin_attempt_allowed(phone_hash: str) -> None:
+    """Telefon bo'yicha PIN urinishlari tezligini cheklaydi (bloklashdan oldingi qatlam)."""
+    if not get_core().pin_limiter.allow(f"pin:{phone_hash}"):
+        raise ServiceError("juda_kop_sorov", 429)
 
 
 def verify_user_pin(db: Session, user: User, pin: str) -> None:
     s = get_settings()
     check_not_locked(user)
+    pin_attempt_allowed(user.phone_hash)
     if verify_pin(pin, user.pin_hash):
         user.pin_failed = 0
         return
@@ -108,10 +140,7 @@ def add_variant(db: Session, terminal: Terminal, phone: str, pin: str, label: st
     """Masalan: kuchli makiyaj, yangi ko'zoynak, soqol. PIN + yuz bilan tasdiqlanadi."""
     core = get_core()
     s = get_settings()
-    user = find_user_by_phone(db, phone)
-    if not user:
-        raise ServiceError("topilmadi", 404)
-    verify_user_pin(db, user, pin)
+    user = user_for_pin(db, phone, pin)
 
     protected = core.transform.protect(capture.embedding)
     own = [core.decrypt_template(t) for t in user.templates]
@@ -168,10 +197,7 @@ def delete_user_data(db: Session, terminal: Terminal, phone: str, pin: str, capt
     Tranzaksiyalar (buxgalteriya talabi) anonim ID bilan qoladi."""
     core = get_core()
     s = get_settings()
-    user = find_user_by_phone(db, phone)
-    if not user:
-        raise ServiceError("topilmadi", 404)
-    verify_user_pin(db, user, pin)
+    user = user_for_pin(db, phone, pin)
     protected = core.transform.protect(capture.embedding)
     own = [core.decrypt_template(t) for t in user.templates]
     if not own or max(float(v @ protected) for v in own) < s.match_threshold:

@@ -60,7 +60,8 @@ class Settings(BaseSettings):
 
     # --- Rate limit ---
     rate_limit_per_minute: int = 120        # terminal: mijoz ekrani har 2 s da so'rovlarni tekshiradi
-    portal_rate_limit_per_minute: int = 20   # ochiq mijoz sayti: bitta IP dan
+    portal_rate_limit_per_minute: int = 40   # ochiq mijoz sayti: bitta IP dan
+    pin_attempts_per_minute: int = 8         # bitta telefon bo'yicha PIN urinishlari
 
     # --- Karta protsessingi ---
     payment_gateway: str = "mock"       # mock | payme

@@ -249,15 +249,50 @@ def test_enrollment_requires_consent(env):
     assert r.status_code == 400 and r.json()["error"] == "rozilik_berilmagan"
 
 
-def test_pin_bruteforce_locks_account(env):
+def test_pin_bruteforce_locks_pin_but_not_face_payments(env):
+    """PIN'ni tanlab topishga urinish PIN'ni bloklaydi, LEKIN yuz bilan kichik to'lovni to'xtatmaydi.
+
+    Aks holda telefon raqamini bilgan begona odam ochiq saytda PIN'ni ataylab xato kiritib,
+    odamni metroda o'tolmaydigan qilib qo'yardi (xizmatni rad etish hujumi).
+    """
     me = random_unit(env["rng"])
     enroll(env, me)
-    for _ in range(2):  # har tranzaksiyada 3 ta urinish, jami 5 ta xato -> blok
+    for _ in range(2):  # har tranzaksiyada 3 ta urinish, jami 5 ta xato -> PIN bloki
         tx = pay(env, me, 450_000).json()["transaction_id"]
         for _ in range(3):
             env["pay"].post(f"/v1/payments/{tx}/pin", {"pin": "0000"})
-    r = pay(env, me, 1_700).json()
-    assert r["status"] == "declined" and r["reason"] == "vaqtincha_bloklangan"
+    assert pay(env, me, 1_700).json()["status"] == "approved"          # metro to'lovi ishlaydi
+    big = pay(env, me, 450_000).json()                                  # PIN kerak -> blok
+    assert big["status"] == "declined" and big["reason"] == "vaqtincha_bloklangan"
+
+
+def test_pin_attempts_rate_limited_per_phone(env):
+    """Bloklashdan oldingi qatlam: bitta telefon bo'yicha PIN urinishlari tezligi cheklanadi."""
+    from app.core import get_core
+    from app.security.terminal_auth import RateLimiter
+
+    enroll(env, random_unit(env["rng"]))
+    get_core().pin_limiter = RateLimiter(3)
+    codes = [portal(env, "/v1/portal/history", {"phone": "+998901234567", "pin": "0000"}).status_code
+             for _ in range(5)]
+    assert codes[:3] == [401, 401, 401] and codes[3:] == [429, 429]
+
+
+def test_unknown_phone_and_wrong_pin_look_identical(env):
+    """Hisob qidirish hujumiga qarshi: telefon ro'yxatda bor-yo'qligi oshkor qilinmaydi."""
+    enroll(env, random_unit(env["rng"]))
+    wrong_pin = portal(env, "/v1/portal/history", {"phone": "+998901234567", "pin": "9999"})
+    no_user = portal(env, "/v1/portal/history", {"phone": "+998905550000", "pin": "9999"})
+    assert wrong_pin.status_code == no_user.status_code == 401
+    assert wrong_pin.json() == no_user.json() == {"error": "telefon_yoki_pin_notogri"}
+
+
+def test_deleted_account_cannot_pay(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    env["enroll"].post("/v1/users/delete", {**capture(env, env["enroll"], me),
+                                            "phone": "+998901234567", "pin": "4821"})
+    assert pay(env, me, 1_700).json()["reason"] == "yuz_tanilmadi"
 
 
 # ---------------- Makiyaj ----------------

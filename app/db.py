@@ -48,7 +48,6 @@ class User(Base):
     pin_hash: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | blocked | deleted
     pin_failed: Mapped[int] = mapped_column(Integer, default=0)
-    face_failed: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     consent_at: Mapped[datetime] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
