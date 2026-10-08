@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 from dataclasses import dataclass, field
 
 import cv2
@@ -87,6 +88,7 @@ def process_capture(frames_b64: list[str], timestamps_ms: list[int], challenge_s
 
     analyzer = get_analyzer()
     passive = get_passive()
+    t0 = time.perf_counter()
 
     # 1-2. Har bir kadr: yuzni topish, bosh burchagi, ko'z/og'iz. Embedding hisoblanmaydi (tezlik uchun).
     images: list[np.ndarray] = []
@@ -98,6 +100,8 @@ def process_capture(frames_b64: list[str], timestamps_ms: list[int], challenge_s
             raise BiometricError(err)
         images.append(img)
         faces.append(face)
+
+    t_light = time.perf_counter()
 
     # 3. Faol liveness
     obs = []
@@ -140,11 +144,16 @@ def process_capture(frames_b64: list[str], timestamps_ms: list[int], challenge_s
     if float((matrix @ matrix.T).min()) < IDENTITY_CONSISTENCY_MIN:
         raise BiometricError("kadrlarda_turli_shaxs")
 
+    t_embed = time.perf_counter()
     embedding = normalize(np.mean([embs[k] for k in best], axis=0))
 
     # Ro'yxatdan o'tish uchun: burilgan kadr ham foydali (profil holatda tanib olish yaxshilanadi)
     turned = [k for k, f in enumerate(faces) if k not in frontal and f.det_score > 0.7]
     extra = [_embed(analyzer, images[turned[len(turned) // 2]], faces[turned[len(turned) // 2]])] if turned else []
+
+    log.info("kadrlar=%d tahlil=%.0fms embedding=%.0fms(%d ta) jami=%.0fms", len(faces),
+             (t_light - t0) * 1000, (t_embed - t_light) * 1000, len(chosen),
+             (time.perf_counter() - t0) * 1000)
 
     return CaptureResult(
         embedding=embedding,

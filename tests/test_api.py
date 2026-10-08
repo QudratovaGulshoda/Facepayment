@@ -755,3 +755,14 @@ def test_housekeeping_removes_expired_rows(env):
     assert kassa.post(f"/v1/cashier/requests/{rq['request_id']}", {}).json()["status"] == "expired"
     with dbmod.session_factory()() as s:
         assert s.query(Challenge).count() == 0
+
+
+def test_server_accepts_webp_frames(env):
+    """Brauzer kadrlarni WebP da yuboradi (JPEG dan ~3 barobar kichik) — server uni o'qiy olishi kerak."""
+    import cv2 as _cv2
+
+    from app.biometrics.pipeline import decode_frame
+
+    img = env["rng"].integers(40, 216, size=(60, 80, 3)).astype(np.uint8)
+    ok, buf = _cv2.imencode(".webp", img, [_cv2.IMWRITE_WEBP_QUALITY, 70])
+    assert ok and decode_frame(base64.b64encode(buf.tobytes()).decode()).shape == (60, 80, 3)

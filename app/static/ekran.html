@@ -40,6 +40,7 @@
   </section>
 
   <div class="cam" id="cam" hidden><video id="video" playsinline muted></video><div class="prompt" id="prompt">Kamera</div></div>
+  <div class="result err" id="cam-error" hidden></div>
 
   <!-- Kutish -->
   <section id="idle" class="screen" hidden>
@@ -54,12 +55,11 @@
     <button class="link" id="pair-btn">Kassani ulash</button>
   </section>
 
-  <!-- To'lov so'rovi -->
+  <!-- To'lov so'rovi: tugma yo'q, kamera o'zi ishga tushadi -->
   <section id="request" class="screen" hidden>
     <p class="merchant" id="rq-merchant"></p>
     <div class="big" id="rq-amount"></div>
-    <p class="muted">Summani tekshiring. To'lash uchun tugmani bosing va kameraga qarang.</p>
-    <button class="primary" id="rq-pay">Yuz bilan to'lash</button>
+    <p class="muted" id="rq-hint">Kameraga qarang</p>
     <div class="result" id="rq-result" hidden></div>
   </section>
 
@@ -129,11 +129,13 @@ async function poll() {
       const rq = r.data.request;
       if (rq && (!current || current.request_id !== rq.request_id)) {
         current = rq;
+        attempts = 0;
         $("#rq-merchant").textContent = rq.merchant;
         $("#rq-amount").textContent = fmt(rq.amount) + " so'm";
         $("#rq-result").hidden = true;
         $("#pair-box").hidden = true;
         screen("request");
+        startPayment();          // mijoz tugma bosmaydi — kamera o'zi ishga tushadi
       } else if (!rq && current && $("#done").hidden && $("#pin-screen").hidden) {
         current = null;          // kassir bekor qildi yoki muddati o'tdi
         screen("idle");
@@ -145,7 +147,7 @@ async function poll() {
 
 // ---------- To'lov ----------
 function finish(kind, title, detail) {
-  Camera.stop();
+  // Kamera oqimi yopilmaydi — keyingi mijoz uchun brauzer yana ruxsat so'ramasligi kerak
   $("#cam").hidden = true;
   $("#done-title").className = "outcome " + kind;
   $("#done-title").textContent = title;
@@ -158,7 +160,6 @@ function handleTx(d) {
   if (d.status === "approved") {
     finish("ok", "✓ To'landi", `${fmt(d.amount)} so'm · ${d.funding === "balance" ? "FacePay balansidan" : d.funding}. Rahmat!`);
   } else if (d.status === "pending_pin") {
-    Camera.stop();
     $("#cam").hidden = true;
     pendingTx = d.transaction_id;
     $("#pin-title").textContent = `${d.customer}, PIN kiriting`;
@@ -170,22 +171,34 @@ function handleTx(d) {
   }
 }
 
-$("#rq-pay").onclick = (e) => busy(e.target, async () => {
-  if (!current) return;
+const MAX_ATTEMPTS = 3;
+let attempts = 0;
+
+async function startPayment() {
+  if (!current || busyFlow) return;
   busyFlow = true;
-  $("#rq-result").hidden = true;
-  $("#cam").hidden = false;
+  attempts += 1;
   const rq = current;
+  $("#rq-result").hidden = true;
+  $("#rq-hint").textContent = "Kameraga qarang";
+  $("#cam").hidden = false;
   const r = await Camera.run(() => device.post("/v1/liveness/challenge", {}),
                              (cap) => device.post(`/v1/terminal/requests/${rq.request_id}/pay`, cap));
   if (r.status === 200) return handleTx(r.data);
-  // Biometrik tekshiruv o'tmadi — so'rov qaytadan kutish holatida, mijoz qayta urinishi mumkin
-  Camera.stop();
+
   $("#cam").hidden = true;
   busyFlow = false;
-  if (r.status === 409) { current = null; return screen("idle"); }
-  show("#rq-result", "err", errText(codeOf(r)) + " Qayta urinib ko'ring.");
-});
+  if (r.status === 409) { current = null; return screen("idle"); }   // kassir bekor qildi
+  if (attempts < MAX_ATTEMPTS) {
+    $("#rq-hint").textContent = "Qayta urinamiz…";
+    show("#rq-result", "err", errText(codeOf(r)));
+    setTimeout(() => { if (current === rq) startPayment(); }, 2500);
+  } else {
+    show("#rq-result", "err", errText(codeOf(r)) + " Kassirga murojaat qiling.");
+    $("#rq-hint").textContent = "To'lov amalga oshmadi";
+    current = null;   // kassir yangi so'rov yuborishi mumkin
+  }
+}
 
 $("#pin-btn").onclick = (e) => busy(e.target, async () => {
   const r = await device.post(`/v1/payments/${pendingTx}/pin`, { pin: $("#pin").value });
@@ -194,11 +207,22 @@ $("#pin-btn").onclick = (e) => busy(e.target, async () => {
   else show("#pin-result", "err", errText(codeOf(r)));
 });
 
-function start() {
+async function start() {
   const c = device.conf();
   $("#merchant-name").textContent = c ? c.name : "Mijoz ekrani";
-  current = null; busyFlow = false;
+  current = null; busyFlow = false; attempts = 0;
   screen(c ? "idle" : "setup");
+  $("#cam").hidden = true;
+  $("#cam-error").hidden = true;
+  if (!c) return;
+  // Kamerani oldindan yoqib qo'yamiz: ruxsat bir marta so'raladi, keyin to'lovlar tugmasiz ishlaydi
+  try {
+    await Camera.start();
+  } catch (e) {
+    const el = $("#cam-error");
+    el.hidden = false;
+    el.textContent = errText(cameraError(e));
+  }
 }
 start();
 poll();
