@@ -140,10 +140,16 @@ Demo kartalar:
 | Sahifa | Kim uchun | Manzil |
 |---|---|---|
 | Mijoz kabineti | mijoz, o'z telefonida | https://qudratovagulshoda--facepay-web.modal.run |
-| Mijoz ekrani | mijozga qaragan kamerali planshet: summa, yuz, PIN | https://qudratovagulshoda--facepay-web.modal.run/ekran |
-| Kassa | sotuvchi: summa kiritadi, natijani ko'radi (kamerasiz) | https://qudratovagulshoda--facepay-web.modal.run/kassa |
+| Mijoz ekrani | mijozga qaragan kamerali planshet: summa, yuz, PIN | `/ekran` |
+| Kassa | sotuvchi: summa kiritadi, natijani ko'radi (kamerasiz) | `/kassa` |
+| Metro turniketi | kassirsiz, qat'iy narx, bitta tugma | `/turniket` |
+| Admin paneli | statistika, terminallar, audit jurnali | `/admin` |
 
 API hujjatlari: `/docs`
+
+**Metro turniketi (`/turniket`):** kassir yo'q, narx **serverda** saqlanadi (`Terminal.fixed_amount`). Turniket boshqa summa yuborsa ham, server o'z narxini qo'llaydi — buni `test_turnstile_charges_fixed_fare` tekshiradi. Mijoz bitta tugmani bosadi, "Marhamat, o'ting" yoki "O'tish mumkin emas" chiqadi. Katta summa PIN talab qilsa, turniketda PIN so'ralmaydi — mijoz kassaga yo'naltiriladi.
+
+**Admin paneli (`/admin`):** foydalanuvchilar va shablonlar soni, bugungi to'lovlar va tushum, rad etish sabablari, terminallar ro'yxati, audit jurnali butunligi. Shaxsiy ma'lumot ko'rsatilmaydi, admin kaliti brauzerda saqlanmaydi.
 
 **Ikki qurilmali kassa qanday ishlaydi:**
 1. **Mijoz ekrani** admin kaliti bilan bir marta ro'yxatdan o'tkaziladi, keyin 6 xonali **ulash kodi** ko'rsatadi.

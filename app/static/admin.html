@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FacePay admin</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .card { background: var(--soft); border-radius: 12px; padding: 14px; }
+  .card .k { color: var(--muted); font-size: 13px; }
+  .card .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .card .v.ok { color: var(--ok); } .card .v.err { color: var(--err); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+  td { padding: 7px 0; border-top: 1px solid var(--line); }
+  td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>FacePay admin</h1>
+    <span class="sub" id="gateway"></span>
+  </header>
+
+  <section id="login">
+    <h2>Kirish</h2>
+    <label for="key">Admin kaliti</label>
+    <input id="key" type="password" autocomplete="off">
+    <p class="muted">Kalit brauzerda saqlanmaydi — sahifa yopilsa, qaytadan kiritiladi.</p>
+    <button class="primary" id="login-btn">Ko'rish</button>
+    <div class="result" id="login-result" hidden></div>
+  </section>
+
+  <div id="panel" hidden>
+    <section>
+      <h2>Bugun</h2>
+      <div class="cards">
+        <div class="card"><div class="k">To'lovlar</div><div class="v ok" id="today-ok">—</div></div>
+        <div class="card"><div class="k">Rad etildi</div><div class="v err" id="today-no">—</div></div>
+        <div class="card"><div class="k">Tushum (so'm)</div><div class="v" id="today-sum">—</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Tizim</h2>
+      <div class="cards">
+        <div class="card"><div class="k">Foydalanuvchilar</div><div class="v" id="users">—</div></div>
+        <div class="card"><div class="k">Yuz shablonlari</div><div class="v" id="templates">—</div></div>
+        <div class="card"><div class="k">Ulangan kartalar</div><div class="v" id="cards">—</div></div>
+        <div class="card"><div class="k">Jami to'lovlar</div><div class="v" id="total">—</div></div>
+      </div>
+      <table id="terminals"></table>
+    </section>
+
+    <section>
+      <h2>Rad etish sabablari</h2>
+      <p class="muted">Eng ko'p uchraydigan sabablar — tizim qayerda to'xtatayotganini ko'rsatadi.</p>
+      <table id="reasons"></table>
+    </section>
+
+    <section>
+      <h2>Audit jurnali</h2>
+      <p class="muted">Har bir yozuv oldingisining xeshini saqlaydi. Jurnal o'zgartirilsa, zanjir buziladi.</p>
+      <div class="cards">
+        <div class="card"><div class="k">Yozuvlar</div><div class="v" id="audit-n">—</div></div>
+        <div class="card"><div class="k">Holat</div><div class="v" id="audit-ok">—</div></div>
+      </div>
+    </section>
+
+    <button class="secondary" id="refresh">Yangilash</button>
+    <footer><button class="link" id="logout" style="color:var(--muted)">Chiqish</button></footer>
+  </div>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+"use strict";
+let adminKey = null;   // faqat xotirada
+
+const ROLE_UZ = { payment: "Mijoz ekrani / turniket", cashier: "Kassa", enroll: "Ro'yxatga olish punkti", portal: "Mijoz sayti" };
+
+function rows(table, data) {
+  const t = $(table);
+  t.textContent = "";
+  for (const [k, v] of data) {
+    const tr = document.createElement("tr");
+    const a = document.createElement("td"), b = document.createElement("td");
+    a.textContent = k; b.textContent = v;
+    tr.append(a, b); t.appendChild(tr);
+  }
+}
+
+async function load() {
+  const r = await fetch("/v1/admin/stats", { headers: { "X-Admin-Key": adminKey } });
+  if (!r.ok) { show("#login-result", "err", errText((await r.json().catch(() => ({}))).detail)); return false; }
+  const d = await r.json();
+  $("#gateway").textContent = d.gateway === "mock" ? "demo rejim (pul yechilmaydi)" : "protsessing: " + d.gateway;
+  $("#today-ok").textContent = d.today.approved;
+  $("#today-no").textContent = d.today.declined;
+  $("#today-sum").textContent = fmt(d.today.amount);
+  $("#users").textContent = d.users;
+  $("#templates").textContent = d.templates_in_memory;
+  $("#cards").textContent = d.cards;
+  $("#total").textContent = d.total_transactions;
+  rows("#terminals", Object.entries(d.terminals).map(([role, n]) => [ROLE_UZ[role] || role, n])
+       .concat([["Sotuvchilar", d.merchants]]));
+  rows("#reasons", d.decline_reasons.map((x) => [errText(x.reason), x.count]));
+  $("#audit-n").textContent = d.audit.entries;
+  $("#audit-ok").textContent = d.audit.intact ? "✓ buzilmagan" : `✗ buzilgan (#${d.audit.first_broken_id})`;
+  $("#audit-ok").className = "v " + (d.audit.intact ? "ok" : "err");
+  return true;
+}
+
+$("#login-btn").onclick = (e) => busy(e.target, async () => {
+  adminKey = $("#key").value;
+  if (await load()) { $("#key").value = ""; $("#login").hidden = true; $("#panel").hidden = false; }
+});
+$("#refresh").onclick = (e) => busy(e.target, load);
+$("#logout").onclick = () => { adminKey = null; $("#panel").hidden = true; $("#login").hidden = false; };
+</script>
+</body>
+</html>

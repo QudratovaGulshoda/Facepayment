@@ -533,7 +533,7 @@ def test_kassa_sees_own_transactions_and_today_total(env):
 
 
 def test_pages_served(env):
-    for path, marker in (("/", "Shaxsiy kabinet"), ("/kassa", "FacePay kassa"), ("/ekran", "Mijoz ekrani"), ("/turniket", "FacePay turniket"),
+    for path, marker in (("/", "Shaxsiy kabinet"), ("/kassa", "FacePay kassa"), ("/ekran", "Mijoz ekrani"), ("/turniket", "FacePay turniket"), ("/admin", "FacePay admin"),
                          ("/static/common.js", "Camera"), ("/static/style.css", ":root")):
         r = env["http"].get(path)
         assert r.status_code == 200 and marker in r.text, path
@@ -685,3 +685,18 @@ def test_normal_terminal_still_uses_requested_amount(env):
     me = random_unit(env["rng"])
     enroll(env, me)
     assert pay(env, me, 2_500).json()["amount"] == 2_500
+
+
+def test_admin_stats(env):
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    link_card(env)
+    pay(env, me, 1_700)
+    pay(env, random_unit(env["rng"]), 1_700)   # rad etiladi
+    r = env["http"].get("/v1/admin/stats", headers=ADMIN)
+    d = r.json()
+    assert d["users"] == 1 and d["cards"] == 1 and d["today"] == {"approved": 1, "declined": 1, "amount": 1700}
+    assert d["terminals"]["payment"] == 1 and d["audit"]["intact"] and d["gateway"] == "mock"
+    assert any(x["reason"] == "yuz_tanilmadi" for x in d["decline_reasons"])
+    assert "phone" not in r.text and "Gulnora" not in r.text   # shaxsiy ma'lumot yo'q
+    assert env["http"].get("/v1/admin/stats", headers={"X-Admin-Key": "no"}).status_code == 401

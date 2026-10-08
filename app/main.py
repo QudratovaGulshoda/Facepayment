@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import select
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
@@ -23,7 +24,8 @@ from app.biometrics.liveness import ACTION_TEXT_UZ, generate_challenge
 from app.biometrics.pipeline import BiometricError, CaptureResult, process_capture
 from app.config import get_settings
 from app.core import audit, get_core, verify_audit_chain
-from app.db import Challenge, Merchant, Terminal, get_session, session_factory, utcnow
+from app.db import (AuditLog, Card, Challenge, Merchant, Terminal, Transaction, User, get_session,
+                    session_factory, utcnow)
 from app.schemas import (AmountIn, CaptureIn, CardAddIn, CardIdPhonePinIn, CardVerifyIn, CardVerifyPortalIn, DeleteIn,
                          EnrollIn, MerchantIn, PairIn, PaymentIn, PhonePinIn, PinIn, PinResetIn, TerminalIn,
                          TopUpIn, VariantIn)
@@ -157,6 +159,12 @@ def customer_site():
 def merchant_kassa():
     """Sotuvchi kassasi: summa kiritadi va natijani ko'radi (kamerasiz)."""
     return FileResponse(STATIC_DIR / "kassa.html")
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page():
+    """Admin paneli: statistika, terminallar, audit jurnali butunligi."""
+    return FileResponse(STATIC_DIR / "admin.html")
 
 
 @app.get("/turniket", include_in_schema=False)
@@ -518,6 +526,41 @@ def topup(data: TopUpIn, db: Session = Depends(get_session)):
     audit(db, "admin", "topup", user_id=user.id, amount=data.amount)
     db.commit()
     return {"balance": user.balance}
+
+
+@app.get("/v1/admin/stats", dependencies=[Depends(require_admin)])
+def admin_stats(db: Session = Depends(get_session)):
+    """Tizim holati. Shaxsiy ma'lumot qaytarilmaydi — faqat sonlar."""
+    from datetime import datetime, time as dtime
+
+    from sqlalchemy import func
+
+    start = datetime.combine(utcnow().date(), dtime.min)
+    count = lambda q: int(db.scalar(q) or 0)  # noqa: E731
+    approved_today = count(select(func.count()).select_from(Transaction).where(
+        Transaction.status == "approved", Transaction.created_at >= start))
+    declined_today = count(select(func.count()).select_from(Transaction).where(
+        Transaction.status == "declined", Transaction.created_at >= start))
+    intact, broken = verify_audit_chain(db)
+    reasons = db.execute(select(Transaction.decline_reason, func.count()).where(
+        Transaction.status == "declined").group_by(Transaction.decline_reason)
+        .order_by(func.count().desc()).limit(6)).all()
+    roles = db.execute(select(Terminal.role, func.count()).group_by(Terminal.role)).all()
+    return {
+        "users": count(select(func.count()).select_from(User).where(User.status == "active")),
+        "templates_in_memory": len(get_core().gallery),
+        "cards": count(select(func.count()).select_from(Card).where(Card.verified.is_(True))),
+        "merchants": count(select(func.count()).select_from(Merchant)),
+        "terminals": {role: n for role, n in roles},
+        "today": {"approved": approved_today, "declined": declined_today,
+                  "amount": count(select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+                      Transaction.status == "approved", Transaction.created_at >= start))},
+        "total_transactions": count(select(func.count()).select_from(Transaction)),
+        "decline_reasons": [{"reason": r or "—", "count": n} for r, n in reasons],
+        "audit": {"intact": intact, "first_broken_id": broken,
+                  "entries": count(select(func.count()).select_from(AuditLog))},
+        "gateway": get_settings().payment_gateway,
+    }
 
 
 @app.get("/v1/admin/audit/verify", dependencies=[Depends(require_admin)])
