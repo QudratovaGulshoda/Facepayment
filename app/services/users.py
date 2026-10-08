@@ -68,7 +68,7 @@ def check_not_locked(user: User) -> None:
     """PIN bloki. DIQQAT: bu blok faqat PIN talab qiladigan amallarga tegishli.
 
     Yuz bilan kichik to'lovlar bloklanmaydi: aks holda telefon raqamini bilgan begona odam
-    ochiq saytda PIN'ni ataylab xato kiritib, odamni metroda o'tolmaydigan qilib qo'yardi.
+    ochiq saytda PIN'ni ataylab xato kiritib, odamni to'lov qila olmaydigan qilib qo'yardi.
     """
     check_account_active(user)
     if user.locked_until and user.locked_until > utcnow():

@@ -66,7 +66,7 @@ def assess(image_bgr: np.ndarray, face: Face, frontal_required: bool = True) -> 
 
 
 def select_primary_face(faces: list[Face], image_shape: tuple) -> tuple[Face | None, str | None]:
-    """Metroda orqada boshqa odamlar turishi mumkin. To'lovchi — eng katta va markazdagi yuz.
+    """Navbatda orqada boshqa odamlar turishi mumkin. To'lovchi — eng katta va markazdagi yuz.
     Agar ikkinchi yuz ham deyarli shunday katta bo'lsa, kim to'layotgani noaniq -> rad etamiz.
     """
     if not faces:

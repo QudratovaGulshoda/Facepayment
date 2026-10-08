@@ -1,6 +1,6 @@
 # FacePay — yuz orqali to'lov tizimi
 
-Karta yoki telefonsiz, faqat yuz orqali to'lov (metro turniketi, do'kon kassasi, avtobus).
+Karta yoki telefonsiz, faqat yuz orqali to'lov: do'kon kassasi, xizmat ko'rsatish joylari va kassirsiz qat'iy narxli terminallar.
 Bitiruv malakaviy ishi uchun loyiha.
 
 ## Asosiy imkoniyatlar
@@ -177,12 +177,12 @@ Chegaralar shu o'lchov asosida tanlandi: xato to'lov **5 barobar kamaydi** (0.72
 | Mijoz kabineti | mijoz, o'z telefonida | https://qudratovagulshoda--facepay-web.modal.run |
 | Mijoz ekrani | mijozga qaragan kamerali planshet: summa, yuz, PIN | `/ekran` |
 | Kassa | sotuvchi: summa kiritadi, natijani ko'radi (kamerasiz) | `/kassa` |
-| Metro turniketi | kassirsiz, qat'iy narx, bitta tugma | `/turniket` |
+| Tezkor terminal | kassirsiz, qat'iy narx, bitta tugma | `/terminal` |
 | Admin paneli | statistika, terminallar, audit jurnali | `/admin` |
 
 API hujjatlari: `/docs`
 
-**Metro turniketi (`/turniket`):** kassir yo'q, narx **serverda** saqlanadi (`Terminal.fixed_amount`). Turniket boshqa summa yuborsa ham, server o'z narxini qo'llaydi — buni `test_turnstile_charges_fixed_fare` tekshiradi. Mijoz bitta tugmani bosadi, "Marhamat, o'ting" yoki "O'tish mumkin emas" chiqadi. Katta summa PIN talab qilsa, turniketda PIN so'ralmaydi — mijoz kassaga yo'naltiriladi.
+**Tezkor terminal (`/terminal`):** kassir yo'q, narx **serverda** saqlanadi (`Terminal.fixed_amount`) — masalan kirish nazorati, avtomat yoki qat'iy narxli xizmat uchun. Qurilma boshqa summa yuborsa ham, server o'z narxini qo'llaydi (`test_fixed_price_terminal_ignores_requested_amount`). PIN talab qilinadigan summada bu qurilmada PIN so'ralmaydi — mijoz kassaga yo'naltiriladi.
 
 **Admin paneli (`/admin`):** foydalanuvchilar va shablonlar soni, bugungi to'lovlar va tushum, rad etish sabablari, terminallar ro'yxati, audit jurnali butunligi. Shaxsiy ma'lumot ko'rsatilmaydi, admin kaliti brauzerda saqlanmaydi.
 
@@ -245,7 +245,7 @@ python -m terminal_client.terminal setup --role payment
 python -m terminal_client.terminal enroll --phone +998901234567 --name "Ali Valiyev"
 curl -X POST localhost:8000/v1/admin/topup -H "X-Admin-Key: ..." -H "Content-Type: application/json" \
      -d '{"phone": "+998901234567", "amount": 100000}'
-python -m terminal_client.terminal pay --amount 1700        # metro: faqat yuz
+python -m terminal_client.terminal pay --amount 10000       # kichik summa: faqat yuz
 python -m terminal_client.terminal pay --amount 350000      # katta summa: yuz + PIN
 python -m terminal_client.terminal variant --phone +998901234567 --label makiyaj
 ```

@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     max_pitch_deg: float = 20.0
 
     # --- To'lov qoidalari (so'mda) ---
-    face_only_limit: int = 200_000      # shu summagacha faqat yuz bilan
+    face_only_limit: int = 200_000      # shu summagacha faqat yuz bilan (undan ko'pi uchun PIN)
     daily_limit: int = 5_000_000
     pin_max_attempts: int = 5
     face_max_failed_attempts: int = 5   # ketma-ket muvaffaqiyatsiz urinishlar -> vaqtincha blok

@@ -62,7 +62,7 @@ class TerminalIn(BaseModel):
     merchant_id: str | None = None
     public_key_b64: str = Field(..., min_length=40, max_length=64)
     role: str = Field("payment", pattern=r"^(payment|enroll)$")
-    # Turniket: qat'iy narx (serverda saqlanadi)
+    # Kassirsiz qurilma: qat'iy narx (serverda saqlanadi)
     fixed_amount: int | None = Field(None, gt=0, le=1_000_000)
 
 

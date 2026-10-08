@@ -1,6 +1,6 @@
 """To'lov terminallarini autentifikatsiya qilish.
 
-Har bir terminal (metro turniketi, do'kon kassasi) o'zining Ed25519 kalit juftligiga ega.
+Har bir terminal (do'kon kassasi, kassirsiz qurilma) o'zining Ed25519 kalit juftligiga ega.
 Server faqat OCHIQ kalitni saqlaydi — server bazasi o'g'irlansa ham terminal nomidan
 so'rov yuborib bo'lmaydi.
 

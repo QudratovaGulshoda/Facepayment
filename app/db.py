@@ -117,7 +117,7 @@ class Terminal(Base):
     merchant_id: Mapped[str | None] = mapped_column(ForeignKey("merchants.id"), nullable=True)
     public_key_b64: Mapped[str] = mapped_column(String(64))
     role: Mapped[str] = mapped_column(String(16), default="payment")  # payment | enroll | cashier | portal
-    # Turniket kabi qat'iy narxli qurilmalar uchun: summa SERVERDA saqlanadi,
+    # Qat'iy narxli (kassirsiz) qurilmalar uchun: summa SERVERDA saqlanadi,
     # qurilma yuborgan summa e'tiborga olinmaydi
     fixed_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)

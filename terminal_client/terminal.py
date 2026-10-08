@@ -1,4 +1,4 @@
-"""Demo terminal (metro turniketi / kassa) — noutbuk kamerasi bilan.
+"""Demo terminal (do'kon kassasi) — noutbuk kamerasi bilan.
 
 Birinchi marta:
     python -m terminal_client.terminal setup --role enroll      # ro'yxatga olish punkti
@@ -6,7 +6,7 @@ Birinchi marta:
 
 Ishlatish:
     python -m terminal_client.terminal enroll --phone +998901234567 --name "Ali Valiyev"
-    python -m terminal_client.terminal pay --amount 1700
+    python -m terminal_client.terminal pay --amount 10000
     python -m terminal_client.terminal variant --phone +998901234567 --label makiyaj
     python -m terminal_client.terminal delete --phone +998901234567
     python -m terminal_client.terminal topup --phone +998901234567 --amount 100000
@@ -47,7 +47,7 @@ def setup(role: str, admin_key: str) -> None:
     headers = {"X-Admin-Key": admin_key}
     merchant_id = None
     if role == "payment":
-        r = httpx.post(f"{SERVER}/v1/admin/merchants", json={"name": "Toshkent metropoliteni"}, headers=headers)
+        r = httpx.post(f"{SERVER}/v1/admin/merchants", json={"name": "Demo do'kon"}, headers=headers)
         r.raise_for_status()
         merchant_id = r.json()["merchant_id"]
     r = httpx.post(f"{SERVER}/v1/admin/terminals", headers=headers,

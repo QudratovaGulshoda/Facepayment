@@ -1,7 +1,7 @@
 """Yuz orqali to'lov.
 
 Risk qoidalari:
-  - summa <= face_only_limit va ishonchli moslik  -> faqat yuz (metro, kichik xaridlar)
+  - summa <= face_only_limit va ishonchli moslik  -> faqat yuz (kichik xaridlar)
   - summa > face_only_limit                        -> yuz + PIN
   - chegaradagi ball / qayta ro'yxat kerak bo'lsa  -> yuz + PIN
   - kunlik limit, balans, bloklash, idempotentlik
@@ -127,7 +127,7 @@ def create_payment(db: Session, terminal: Terminal, idempotency_key: str, amount
     if existing:
         return existing, {}
     if terminal.fixed_amount:
-        amount = terminal.fixed_amount  # turniket: narxni qurilma emas, server belgilaydi
+        amount = terminal.fixed_amount  # qat'iy narxli terminal: narxni qurilma emas, server belgilaydi
     if amount <= 0:
         raise ServiceError("summa_notogri")
     if not terminal.merchant_id:

@@ -95,7 +95,7 @@ def env(tmp_path, monkeypatch):
     from app.main import app
 
     with TestClient(app) as http:
-        r = http.post("/v1/admin/merchants", json={"name": "Metro"}, headers=ADMIN)
+        r = http.post("/v1/admin/merchants", json={"name": "Do'kon"}, headers=ADMIN)
         merchant_id = r.json()["merchant_id"]
         clients = {}
         for role in ("enroll", "payment"):
@@ -139,7 +139,7 @@ def pay(env, emb, amount=1_700, **kw):
 
 # ---------------- Asosiy oqim ----------------
 
-def test_metro_payment_face_only(env):
+def test_small_payment_face_only(env):
     me = random_unit(env["rng"])
     enroll(env, me)
     r = pay(env, me, 1_700)
@@ -253,7 +253,7 @@ def test_pin_bruteforce_locks_pin_but_not_face_payments(env):
     """PIN'ni tanlab topishga urinish PIN'ni bloklaydi, LEKIN yuz bilan kichik to'lovni to'xtatmaydi.
 
     Aks holda telefon raqamini bilgan begona odam ochiq saytda PIN'ni ataylab xato kiritib,
-    odamni metroda o'tolmaydigan qilib qo'yardi (xizmatni rad etish hujumi).
+    odamni to'lov qila olmaydigan qilib qo'yardi (xizmatni rad etish hujumi).
     """
     me = random_unit(env["rng"])
     enroll(env, me)
@@ -261,7 +261,7 @@ def test_pin_bruteforce_locks_pin_but_not_face_payments(env):
         tx = pay(env, me, 450_000).json()["transaction_id"]
         for _ in range(3):
             env["pay"].post(f"/v1/payments/{tx}/pin", {"pin": "0000"})
-    assert pay(env, me, 1_700).json()["status"] == "approved"          # metro to'lovi ishlaydi
+    assert pay(env, me, 1_700).json()["status"] == "approved"          # kichik to'lov ishlaydi
     big = pay(env, me, 450_000).json()                                  # PIN kerak -> blok
     assert big["status"] == "declined" and big["reason"] == "vaqtincha_bloklangan"
 
@@ -512,7 +512,7 @@ def test_portal_full_customer_flow(env):
     assert v.json()["is_default"]
     assert pay(env, me, 1_700).json()["status"] == "approved"   # kassa (imzolangan terminal)
     hist = portal(env, "/v1/portal/history", {"phone": PHONE, "pin": "4821"}).json()["transactions"]
-    assert hist[0]["amount"] == 1700 and hist[0]["merchant"] == "Metro" and hist[0]["funding"].endswith("9012")
+    assert hist[0]["amount"] == 1700 and hist[0]["merchant"] == "Do'kon" and hist[0]["funding"].endswith("9012")
     cards_list = portal(env, "/v1/portal/cards/list", {"phone": PHONE, "pin": "4821"}).json()["cards"]
     assert len(cards_list) == 1
 
@@ -568,7 +568,7 @@ def test_kassa_sees_own_transactions_and_today_total(env):
 
 
 def test_pages_served(env):
-    for path, marker in (("/", "Shaxsiy kabinet"), ("/kassa", "FacePay kassa"), ("/ekran", "Mijoz ekrani"), ("/turniket", "FacePay turniket"), ("/admin", "FacePay admin"),
+    for path, marker in (("/", "Shaxsiy kabinet"), ("/kassa", "FacePay kassa"), ("/ekran", "Mijoz ekrani"), ("/turniket", "FacePay tezkor terminal"), ("/terminal", "FacePay tezkor terminal"), ("/admin", "FacePay admin"),
                          ("/static/common.js", "Camera"), ("/static/style.css", ":root")):
         r = env["http"].get(path)
         assert r.status_code == 200 and marker in r.text, path
@@ -597,7 +597,7 @@ def test_two_device_checkout(env):
     rq = kassa.post("/v1/cashier/requests", {"amount": 1_700}).json()
     assert kassa.post(f"/v1/cashier/requests/{rq['request_id']}", {}).json()["status"] == "waiting"
     pending = env["pay"].post("/v1/terminal/pending", {}).json()["request"]
-    assert pending["amount"] == 1_700 and pending["merchant"] == "Metro"
+    assert pending["amount"] == 1_700 and pending["merchant"] == "Do'kon"
     tx = screen_pay(env, me, pending["request_id"]).json()
     assert tx["status"] == "approved"
     st = kassa.post(f"/v1/cashier/requests/{rq['request_id']}", {}).json()
@@ -693,27 +693,27 @@ def test_only_a_few_frames_get_embeddings(env):
     assert env["mock"].embed_calls <= 8, env["mock"].embed_calls
 
 
-# ---------------- Metro turniketi (kassirsiz, qat'iy narx) ----------------
+# ---------------- Kassirsiz tezkor terminal (qat'iy narx) ----------------
 
-def turnstile_terminal(env, fare=1_700):
+def fixed_price_terminal(env, fare=10_000):
     key = Ed25519PrivateKey.generate()
-    m = env["http"].post("/v1/admin/merchants", json={"name": "Metro Chilonzor"}, headers=ADMIN).json()
+    m = env["http"].post("/v1/admin/merchants", json={"name": "Tezkor terminal"}, headers=ADMIN).json()
     r = env["http"].post("/v1/admin/terminals", headers=ADMIN, json={
-        "name": "turniket-1", "merchant_id": m["merchant_id"], "public_key_b64": public_key_b64(key),
+        "name": "terminal-1", "merchant_id": m["merchant_id"], "public_key_b64": public_key_b64(key),
         "role": "payment", "fixed_amount": fare})
     assert r.status_code == 201, r.text
     return TerminalClient("", r.json()["terminal_id"], key, http=env["http"])
 
 
-def test_turnstile_charges_fixed_fare(env):
-    """Turniket yuborgan summa e'tiborga olinmaydi — narx serverda saqlanadi."""
+def test_fixed_price_terminal_ignores_requested_amount(env):
+    """Kassirsiz qurilma yuborgan summa e'tiborga olinmaydi — narx serverda saqlanadi."""
     me = random_unit(env["rng"])
     enroll(env, me)
-    gate = turnstile_terminal(env, fare=1_700)
+    gate = fixed_price_terminal(env, fare=10_000)
     r = gate.post("/v1/payments", {**capture(env, gate, me), "amount": 1, "idempotency_key": uuid.uuid4().hex})
-    assert r.json()["status"] == "approved" and r.json()["amount"] == 1_700
+    assert r.json()["status"] == "approved" and r.json()["amount"] == 10_000
     big = gate.post("/v1/payments", {**capture(env, gate, me), "amount": 900_000, "idempotency_key": uuid.uuid4().hex})
-    assert big.json()["amount"] == 1_700
+    assert big.json()["amount"] == 10_000
 
 
 def test_normal_terminal_still_uses_requested_amount(env):

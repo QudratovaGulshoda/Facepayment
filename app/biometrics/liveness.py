@@ -122,8 +122,8 @@ def verify_active(steps: list[str], frames: list[FrameObs]) -> ActiveResult:
     if duration < 800 or duration > 30_000:
         return ActiveResult(False, reason="davomiylik_notogri")
 
-    # Boshlang'ich holat: kamera har doim ham yuzning ro'parasida bo'lmaydi (noutbuk, turniket
-    # balandligi). Burilish shu holatga NISBATAN o'lchanadi.
+    # Boshlang'ich holat: kamera har doim ham yuzning ro'parasida bo'lmaydi (noutbuk, devordagi
+    # terminal balandligi). Burilish shu holatga NISBATAN o'lchanadi.
     base_yaw = float(np.median([f.yaw for f in frames[:3]]))
     stats = _stats(frames, base_yaw)
     if abs(base_yaw) > 25:

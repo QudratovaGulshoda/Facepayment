@@ -167,9 +167,10 @@ def admin_page():
     return FileResponse(STATIC_DIR / "admin.html")
 
 
+@app.get("/terminal", include_in_schema=False)
 @app.get("/turniket", include_in_schema=False)
-def turnstile():
-    """Metro turniketi: kassirsiz, qat'iy narx (narx serverda saqlanadi)."""
+def fixed_price_terminal():
+    """Kassirsiz tezkor terminal: qat'iy narx (narx serverda saqlanadi)."""
     return FileResponse(STATIC_DIR / "turniket.html")
 
 
