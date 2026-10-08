@@ -122,6 +122,41 @@ Demo kartalar:
 
 > **Prod uchun eslatma:** real tizimda karta raqamini protsessingning o'z formasi yoki SDK si orqali kiritish tavsiya etiladi. Shunda server karta raqamini umuman ko'rmaydi va PCI DSS talablari doirasi kichrayadi.
 
+## Tajriba natijalari (LFW bazasi)
+
+Ochiq [LFW](https://vis-www.cs.umass.edu/lfw/) bazasida o'lchandi: 1680 shaxs, 3294 surat, 4381 ta haqiqiy va 20 000 ta soxta juftlik.
+Takrorlash: `python scripts/evaluate.py <dataset> --cache emb.npz --sweep`. Natijalar: [docs/natijalar_lfw.csv](docs/natijalar_lfw.csv), grafik: [docs/natijalar_lfw.png](docs/natijalar_lfw.png).
+
+**1:1 tekshiruv (verifikatsiya)**
+
+| Chegara | FAR (begonani qabul qilish) | FRR (o'zini rad etish) |
+|---|---|---|
+| 0.30 | 0.000% | 3.31% |
+| 0.45 | 0.000% | 4.57% |
+| **0.50 (joriy)** | **0.000%** | **6.53%** |
+| 0.60 | 0.000% | 21.1% |
+
+Teng xatolik nuqtasi (EER) ≈ **1.71%**.
+
+**1:N qidiruv (to'lovdagi haqiqiy rejim).** Bu yerda eng xavfli xato — *boshqa odam hisobidan pul yechilishi*. Tizimning to'liq qoidasi bo'yicha (chegara + margin + "ishonch past bo'lsa PIN") o'lchangan:
+
+| Sozlama | PIN'siz to'g'ri to'lov | PIN so'raldi | Rad etildi | **PIN'siz XATO to'lov** |
+|---|---|---|---|---|
+| 0.45 / 0.08 / 0.60 (boshlang'ich) | 95.2% | 1.0% | 3.0% | **0.72%** |
+| **0.50 / 0.16 / 0.70 (tanlangan)** | 90.0% | 5.6% | 4.2% | **0.14%** |
+| 0.55 / 0.16 / 0.70 | 86.4% | 8.2% | 5.2% | 0.14% |
+
+Chegaralar shu o'lchov asosida tanlandi: xato to'lov **5 barobar kamaydi** (0.72% → 0.14%), buning evaziga har 18 to'lovdan bittasida qo'shimcha PIN so'raladi.
+
+**Ko'p shablonli yondashuvning foydasi** (loyihaning yosh o'zgarishi va makiyajga moslashish mexanizmi) o'lchov bilan tasdiqlandi:
+
+| Har bir foydalanuvchida shablon | To'g'ri tanish | Xato shaxs | Rad etildi |
+|---|---|---|---|
+| 1 ta | 94.3% | 0.93% | 4.8% |
+| **3 ta** | **96.7%** | **0.72%** | **2.6%** |
+
+**Muhim izoh.** LFW — internetdan olingan, turli yoritish va burchakdagi, past sifatli suratlar to'plami. Terminal kamerasi yaqindan, yorug' joyda, old tomondan suratga oladi va tizim bir nechta kadrni o'rtachalaydi, shuning uchun real sharoitda xatolik LFW dagidan kam bo'ladi. Shu bilan birga, tizimga liveness tekshiruvi ham qo'shiladi — LFW o'lchovi uni qamrab olmaydi.
+
 ## Yosh o'zgarishi va makiyaj
 
 **Yosh o'zgarishi** ([app/biometrics/matcher.py](app/biometrics/matcher.py)):
@@ -265,7 +300,7 @@ tests/                       56 ta test
 ## Cheklovlar va keyingi ishlar (diplomda ochiq yozish tavsiya etiladi)
 
 - **3D silikon niqob:** oddiy RGB kamera bilan to'liq aniqlab bo'lmaydi. Real turniketlarda IQ (infraqizil) yoki chuqurlik kamerasi (masalan, Intel RealSense) qo'shiladi.
-- **Chegaralarni kalibrlash:** 0.45 / 0.60 / 0.08 qiymatlari ArcFace uchun odatiy qiymatlar. Ularni mahalliy (O'zbekiston aholisi) ma'lumotlari asosida `scripts/evaluate.py` bilan qayta kalibrlash kerak.
+- **Chegaralarni mahalliy kalibrlash:** 0.50 / 0.16 / 0.70 qiymatlari LFW bazasida o'lchandi. O'zbekiston aholisi suratlarida qayta o'lchash aniqlikni yanada oshiradi (`scripts/evaluate.py --sweep`).
 - **Tezlik va xavfsizlik muvozanati:** tez bo'lishi uchun faol sinovda bitta tasodifiy harakat so'raladi (4 xil harakatdan). Xavfsizroq, lekin sekinroq variant uchun `FACEPAY_CHALLENGE_STEPS=2`.
 - **Masshtab:** galereya RAM'da saqlanadi (numpy). Millionlab foydalanuvchi uchun FAISS/HNSW indeks, PostgreSQL, Redis (nonce va rate limit) kerak bo'ladi.
 - **Kalitlarni boshqarish:** master kalit `.env` da turibdi. Prod muhitda HSM yoki KMS ishlatiladi, kalitlar muntazam almashtiriladi (versiya maydoni tayyor).

@@ -196,6 +196,7 @@ def health():
 
 def _new_challenge(db: Session, terminal: Terminal) -> dict:
     s = get_settings()
+    checkout.housekeeping(db)  # muddati o'tgan yozuvlarni vaqti-vaqti bilan tozalaydi
     eye_mouth = getattr(get_analyzer(), "supports_eye_mouth", False)
     steps = generate_challenge(s.challenge_steps, eye_mouth)
     ch = Challenge(terminal_id=terminal.id, steps=steps,
@@ -561,6 +562,11 @@ def admin_stats(db: Session = Depends(get_session)):
                   "entries": count(select(func.count()).select_from(AuditLog))},
         "gateway": get_settings().payment_gateway,
     }
+
+
+@app.post("/v1/admin/cleanup", dependencies=[Depends(require_admin)])
+def admin_cleanup(db: Session = Depends(get_session)):
+    return checkout.housekeeping(db, force=True)
 
 
 @app.get("/v1/admin/audit/verify", dependencies=[Depends(require_admin)])

@@ -26,9 +26,13 @@ class Settings(BaseSettings):
 
     # --- Yuzni solishtirish chegaralari (ArcFace cosine o'xshashligi) ---
     embedding_dim: int = 512
-    match_threshold: float = 0.45       # bundan past -> rad etiladi
-    high_confidence_threshold: float = 0.60  # shablonni yangilash uchun (yosh o'zgarishi)
-    min_margin: float = 0.08            # 1-o'rin va 2-o'rin orasidagi minimal farq (egizaklar, o'xshashlar)
+    # Quyidagi uchta qiymat LFW bazasida o'lchab tanlangan (scripts/evaluate.py --sweep).
+    # 0.50 / 0.16 / 0.70 da: PIN'siz xato to'lov 0.14% (avvalgi 0.45/0.08/0.60 da 0.72% edi),
+    # to'lovlarning 90% i PIN'siz o'tadi, 5.6% ida PIN so'raladi.
+    match_threshold: float = 0.50       # bundan past -> rad etiladi
+    min_margin: float = 0.16            # 1-o'rin va 2-o'rin orasidagi minimal farq (egizaklar, o'xshashlar)
+    pin_required_below: float = 0.70    # ball shundan past bo'lsa, summadan qat'i nazar PIN so'raladi
+    high_confidence_threshold: float = 0.65  # shablonni yangilash uchun (yosh o'zgarishi)
     max_templates_per_user: int = 6     # turli holatlar: makiyajli/makiyajsiz, ko'zoynak, yillar
     template_ema_alpha: float = 0.15    # shablonni asta-sekin yangilash koeffitsienti
     template_diversity_threshold: float = 0.80  # yangi shablon qo'shish uchun farq chegarasi

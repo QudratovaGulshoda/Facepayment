@@ -20,8 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.biometrics.pipeline import CaptureResult
 from app.core import audit, get_core
-from app.db import (Merchant, PairingCode, PaymentRequest, Terminal, TerminalPairing, Transaction, new_id,
-                    utcnow)
+from app.db import (Challenge, Merchant, PairingCode, PaymentRequest, Terminal, TerminalPairing, Transaction,
+                    new_id, utcnow)
 from app.services import payments
 from app.services.users import ServiceError
 
@@ -159,3 +159,27 @@ def release_request(db: Session, req: PaymentRequest) -> None:
     if req.status == "processing" and not req.transaction_id:
         req.status = "waiting"
         db.commit()
+
+
+# ---------------- Tozalash ----------------
+
+_last_cleanup = {"at": None}
+CLEANUP_EVERY = timedelta(minutes=10)
+
+
+def housekeeping(db: Session, force: bool = False) -> dict:
+    """Muddati o'tgan yozuvlarni tozalaydi: sinovlar, ulash kodlari, kutib qolgan so'rovlar.
+
+    Bazani cheksiz o'sishdan saqlaydi. 10 daqiqada bir marta ishlaydi.
+    """
+    now = utcnow()
+    if not force and _last_cleanup["at"] and now - _last_cleanup["at"] < CLEANUP_EVERY:
+        return {}
+    _last_cleanup["at"] = now
+    challenges = db.query(Challenge).filter(Challenge.expires_at < now - timedelta(hours=1)).delete()
+    codes = db.query(PairingCode).filter(PairingCode.expires_at < now - timedelta(hours=1)).delete()
+    expired = (db.query(PaymentRequest)
+               .filter(PaymentRequest.status.in_(("waiting", "processing")), PaymentRequest.expires_at < now)
+               .update({PaymentRequest.status: "expired"}, synchronize_session=False))
+    db.commit()
+    return {"challenges": challenges, "pairing_codes": codes, "requests_expired": expired}

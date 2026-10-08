@@ -108,7 +108,7 @@ def main() -> None:
     ap.add_argument("dataset", type=Path)
     ap.add_argument("--max-per-person", type=int, default=10)
     ap.add_argument("--impostor-pairs", type=int, default=20000)
-    ap.add_argument("--margin", type=float, default=0.08)
+    ap.add_argument("--margin", type=float, default=0.16)
     ap.add_argument("--out", type=Path, default=Path("natijalar.csv"))
     ap.add_argument("--cache", type=Path, default=None,
                     help="embeddinglarni .npz ga saqlab qo'yadi; keyingi ishga tushirishda qayta hisoblanmaydi")
@@ -135,14 +135,16 @@ def main() -> None:
         rows.append((round(float(t), 3), far, frr))
     eer_row = min(rows, key=lambda r: abs(r[1] - r[2]))
 
-    corr, wrong, rej = identification(data, 0.45, a.margin)
+    from app.config import get_settings as _s
+
+    corr, wrong, rej = identification(data, _s().match_threshold, a.margin)
 
     print(f"\n{'chegara':>8} {'FAR':>10} {'FRR':>10}")
     for t, far, frr in rows:
         mark = "  <- EER" if (t, far, frr) == eer_row else ("  <- joriy sozlama" if abs(t - 0.45) < 1e-6 else "")
         print(f"{t:>8.3f} {far:>10.5f} {frr:>10.5f}{mark}")
     print(f"\nEER ~ {(eer_row[1] + eer_row[2]) / 2:.4f} (chegara {eer_row[0]})")
-    print(f"1:N (chegara 0.45, margin {a.margin}): to'g'ri {corr:.3%}, "
+    print(f"1:N (chegara {_s().match_threshold}, margin {a.margin}): to'g'ri {corr:.3%}, "
           f"XATO shaxs {wrong:.3%}, rad etildi {rej:.3%}")
     if a.sweep:
         sweep(data)
@@ -157,6 +159,9 @@ def main() -> None:
 
 def _plot(rows, genuine, impostor, path: Path) -> None:
     """Diplomning 'Tajriba natijalari' bo'limi uchun ikkita grafik."""
+    from app.config import get_settings
+
+    thr = get_settings().match_threshold
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -167,8 +172,8 @@ def _plot(rows, genuine, impostor, path: Path) -> None:
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
     ax1.plot(t, [r[1] for r in rows], label="FAR (begonani qabul qilish)")
     ax1.plot(t, [r[2] for r in rows], label="FRR (o'zini rad etish)")
-    ax1.axvline(0.45, ls="--", lw=1, color="gray")
-    ax1.annotate("joriy chegara 0.45", (0.45, 0.5), rotation=90, va="center", fontsize=8, color="gray")
+    ax1.axvline(thr, ls="--", lw=1, color="gray")
+    ax1.annotate(f"joriy chegara {thr}", (thr, 0.5), rotation=90, va="center", fontsize=8, color="gray")
     ax1.set_xlabel("Chegara (cosine)")
     ax1.set_ylabel("Xato ulushi")
     ax1.set_yscale("log")
@@ -176,7 +181,7 @@ def _plot(rows, genuine, impostor, path: Path) -> None:
     ax1.set_title("FAR va FRR")
     ax2.hist(impostor, bins=60, alpha=0.65, label="turli odamlar", density=True)
     ax2.hist(genuine, bins=60, alpha=0.65, label="bir odam", density=True)
-    ax2.axvline(0.45, ls="--", lw=1, color="gray")
+    ax2.axvline(thr, ls="--", lw=1, color="gray")
     ax2.set_xlabel("Cosine o'xshashlik")
     ax2.set_title("O'xshashliklar taqsimoti")
     ax2.legend(fontsize=9)

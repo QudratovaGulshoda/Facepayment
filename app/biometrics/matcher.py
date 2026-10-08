@@ -53,8 +53,8 @@ def decide(result: SearchResult) -> Decision:
         return Decision(False, "yuz_tanilmadi", False)
     if result.score - result.second_score < s.min_margin:
         return Decision(False, "noaniq_moslik", False)
-    borderline = result.score < (s.match_threshold + s.high_confidence_threshold) / 2
-    return Decision(True, None, borderline)
+    # Chegaraga yaqin ball: shaxs tasdiqlandi, lekin ishonch yetarli emas -> PIN so'raladi
+    return Decision(True, None, borderline=result.score < s.pin_required_below)
 
 
 class Gallery:

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.core import audit, get_core
-from app.db import Card, Terminal, User, new_id
+from app.db import Card, Terminal, new_id
 from app.gateway import GatewayError, get_gateway
 from app.services.users import ServiceError, find_user_by_phone, user_for_pin
 

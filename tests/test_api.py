@@ -735,3 +735,23 @@ def test_admin_stats(env):
     assert any(x["reason"] == "yuz_tanilmadi" for x in d["decline_reasons"])
     assert "phone" not in r.text and "Gulnora" not in r.text   # shaxsiy ma'lumot yo'q
     assert env["http"].get("/v1/admin/stats", headers={"X-Admin-Key": "no"}).status_code == 401
+
+
+def test_housekeeping_removes_expired_rows(env):
+    """Baza cheksiz o'smasligi uchun muddati o'tgan yozuvlar tozalanadi."""
+    from datetime import timedelta
+
+    from app.db import Challenge, PaymentRequest, utcnow
+
+    kassa = pair_cashier(env)
+    rq = kassa.post("/v1/cashier/requests", {"amount": 1_700}).json()
+    env["pay"].post("/v1/liveness/challenge", {})
+    with dbmod.session_factory()() as s:
+        s.query(Challenge).update({Challenge.expires_at: utcnow() - timedelta(days=1)})
+        s.query(PaymentRequest).update({PaymentRequest.expires_at: utcnow() - timedelta(minutes=5)})
+        s.commit()
+    r = env["http"].post("/v1/admin/cleanup", headers=ADMIN).json()
+    assert r["challenges"] >= 1 and r["requests_expired"] == 1
+    assert kassa.post(f"/v1/cashier/requests/{rq['request_id']}", {}).json()["status"] == "expired"
+    with dbmod.session_factory()() as s:
+        assert s.query(Challenge).count() == 0

@@ -103,8 +103,12 @@ def test_lookalikes_rejected_by_margin():
 
 
 def test_borderline_score_requires_pin():
-    assert decide(SearchResult("u1", 0.48, "t1", 0.05)).borderline
-    assert not decide(SearchResult("u1", 0.75, "t1", 0.05)).borderline
+    """Chegaraga yaqin ball (0.50-0.70): shaxs tanildi, lekin ishonch past -> PIN so'raladi."""
+    weak = decide(SearchResult("u1", 0.58, "t1", 0.05))
+    assert weak.accepted and weak.borderline
+    strong = decide(SearchResult("u1", 0.78, "t1", 0.05))
+    assert strong.accepted and not strong.borderline
+    assert not decide(SearchResult("u1", 0.48, "t1", 0.05)).accepted   # chegaradan past -> rad
 
 
 # ---------------- Yosh o'zgarishi ----------------
@@ -143,7 +147,7 @@ def test_aging_template_adaptation(rng):
     final_probe = noisy(aging_face(e0, d, 10), rng, 0.93)
     static_score = float(static @ final_probe)
     adaptive_score = max(float(t.vec @ final_probe) for t in templates)
-    assert static_score < 0.45, static_score
+    assert static_score < 0.50, static_score   # chegaradan past: moslashuvsiz tanilmaydi
     assert adaptive_score > 0.60, adaptive_score
 
 
