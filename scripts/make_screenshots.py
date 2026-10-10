@@ -54,7 +54,11 @@ window.addEventListener("load", () => {{
       cam.hidden = true;
     }}
   }}
-  try {{ {state_js} }} catch (e) {{ document.title = "XATO: " + e.message; }}
+  try {{ {state_js} }} catch (e) {{
+    document.title = "XATO: " + e.message;
+    document.body.insertAdjacentHTML("afterbegin",
+      '<div style="background:#b3261e;color:#fff;padding:10px;font:14px sans-serif">SKRINSHOT XATOSI: ' + e.message + '</div>');
+  }}
 }});
 </script>
 """
@@ -149,15 +153,15 @@ SHOTS: list[tuple[str, str, str, str | None]] = [
        <span><button class="link">Asosiy qilish</button><button class="link" style="color:var(--err);margin-left:12px">O'chirish</button></span></li>`;''', None),
     ("07-kabinet-tarix", "index.html", tab("history") + fill({"#hs-phone": "+998901234567"}) + '''
      document.querySelector("#hs-list").innerHTML = `
-      <li><span><div>Do'kon "Mehr"</div><div class="meta">08.10 14:32 · 8600 **** **** 9012</div></span>
+      <li><span><div>Kafe «Bahor»</div><div class="meta">08.10 14:32 · 8600 **** **** 9012</div></span>
           <span><span class="amount">67 000</span> <span class="tag ok">to'landi</span></span></li>
-      <li><span><div>Kafe "Bahor"</div><div class="meta">08.10 12:05 · 8600 **** **** 9012</div></span>
+      <li><span><div>Sport zal «Olimp»</div><div class="meta">08.10 12:05 · 8600 **** **** 9012</div></span>
           <span><span class="amount">25 000</span> <span class="tag ok">to'landi</span></span></li>
-      <li><span><div>Do'kon "Mehr"</div><div class="meta">07.10 19:41 · 8600 **** **** 9012</div></span>
+      <li><span><div>Shifoxona «Salomat»</div><div class="meta">07.10 19:41 · 8600 **** **** 9012</div></span>
           <span><span class="amount">350 000</span> <span class="tag ok">to'landi</span></span></li>
-      <li><span><div>Kafe "Bahor"</div><div class="meta">07.10 10:14 · Yuz tanilmadi</div></span>
+      <li><span><div>Kafe «Bahor»</div><div class="meta">07.10 10:14 · Yuz tanilmadi</div></span>
           <span><span class="amount">15 000</span> <span class="tag err">rad etildi</span></span></li>`;
-     ul.querySelectorAll("li").forEach((li, i) => {
+     document.querySelectorAll("#hs-list li").forEach((li, i) => {
        if (i > 2) return;
        const b = document.createElement("button");
        b.className = "link"; b.style.color = "var(--err)"; b.textContent = "Bu men emasman";
@@ -171,14 +175,14 @@ SHOTS: list[tuple[str, str, str, str | None]] = [
      + result("#fz-result", "warn",
               "Yuz orqali to'lov to'xtatildi. Endi hech kim sizning yuzingiz bilan to'lay olmaydi."), None),
 
-    # --- Mijoz ekrani (do'kondagi kamerali qurilma) ---
+    # --- Mijoz ekrani (savdo yoki xizmat nuqtasidagi kamerali qurilma) ---
     ("09-ekran-sozlash", "ekran.html", 'screen("setup");', None),
     ("10-ekran-ulash-kodi", "ekran.html", '''screen("idle");
      document.querySelector("#pair-box").hidden = false;
      document.querySelector("#pair-code").textContent = "482915";''', None),
     ("11-ekran-kutish", "ekran.html", 'screen("idle");', None),
     ("12-ekran-tolov", "ekran.html", '''screen("request");
-     document.querySelector("#rq-merchant").textContent = "Do'kon \\"Mehr\\"";
+     document.querySelector("#rq-merchant").textContent = "Kafe «Bahor»";
      document.querySelector("#rq-amount").textContent = "67 000 so'm";''', "Boshingizni chapga buring"),
     ("13-ekran-pin", "ekran.html", '''screen("pin-screen");
      document.querySelector("#pin-title").textContent = "G****** Q., PIN kiriting";
@@ -196,14 +200,14 @@ SHOTS: list[tuple[str, str, str, str | None]] = [
      document.querySelector("#pair-code").value = "482915";''', None),
     ("17-kassa-kutilmoqda", "kassa.html", '''document.querySelector("#setup").hidden = true;
      document.querySelector("#kassa").hidden = false;
-     document.querySelector("#merchant-name").textContent = "Do'kon \\"Mehr\\"";
+     document.querySelector("#merchant-name").textContent = "Kafe «Bahor»";
      document.querySelector("#amount").value = 67000;
      status("", "Mijoz ekranida kutilmoqda…", "67 000 so'm");
      document.querySelector("#cancel-btn").hidden = false;
      document.querySelector("#today").textContent = "442 000 so'm";''', None),
     ("18-kassa-tolandi", "kassa.html", '''document.querySelector("#setup").hidden = true;
      document.querySelector("#kassa").hidden = false;
-     document.querySelector("#merchant-name").textContent = "Do'kon \\"Mehr\\"";
+     document.querySelector("#merchant-name").textContent = "Kafe «Bahor»";
      document.querySelector("#amount").value = 67000;
      status("ok", "✓ To'landi: 67 000 so'm", "G****** Q. · yuz");
      document.querySelector("#today").textContent = "509 000 so'm";

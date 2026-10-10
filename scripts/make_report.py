@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import base64
+import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -21,7 +23,7 @@ SUBTITLE = "Tizimning ishlash bosqichlari: ekran ko'rinishlari va izohlar"
 
 # (fayl, sarlavha, izoh paragraflari)
 STEPS: list[tuple[str | None, str, list[str]]] = [
-    (None, "1. Tizim haqida qisqacha", [
+    (None, "Tizim haqida qisqacha", [
         "FacePay — foydalanuvchi karta yoki telefonsiz, faqat yuzi orqali to'lov qiladigan tizim. "
         "Yuz tasviri saqlanmaydi: undan 512 o'lchamli matematik vektor (shablon) olinadi, u maxfiy "
         "matritsa bilan o'zgartiriladi va AES-256-GCM bilan shifrlangan holda saqlanadi.",
@@ -32,7 +34,7 @@ STEPS: list[tuple[str | None, str, list[str]]] = [
         "MediaPipe (bosh holati, ko'z va og'iz harakati), MiniFASNetV2 (tirikligini tekshirish), "
         "SQLAlchemy, Ed25519 raqamli imzo. Server Modal bulutida joylashgan, kod GitHub'da.",
     ]),
-    (None, "2. To'lovning umumiy sxemasi", [
+    (None, "To'lovning umumiy sxemasi", [
         "<pre class=\"diagram\">"
         "  MIJOZ EKRANI (kamera)            SERVER                         KASSA (sotuvchi)\n"
         "         |                            |                                 |\n"
@@ -54,14 +56,14 @@ STEPS: list[tuple[str | None, str, list[str]]] = [
         "so'rov raqamini yuboradi, summani o'zgartira olmaydi.",
     ]),
 
-    ("01-kabinet-royxat.png", "3. Mijoz kabineti: ro'yxatdan o'tish", [
+    ("01-kabinet-royxat.png", "Mijoz kabineti: ro'yxatdan o'tish", [
         "Foydalanuvchi o'z telefonida saytni ochadi. Telefon raqami, ismi va o'zi o'ylab topgan 4–6 xonali "
         "PIN kiritiladi. <code>1234</code>, <code>1111</code> kabi oddiy PIN'lar qabul qilinmaydi.",
         "Rozilik belgisi majburiy: \"Shaxsga doir ma'lumotlar to'g'risida\"gi Qonun (O'RQ-547) biometrik "
         "ma'lumotni faqat aniq rozilik bilan qayta ishlashga ruxsat beradi. Matnda rasm saqlanmasligi va "
         "ma'lumotlarni istalgan vaqtda o'chirish mumkinligi ko'rsatilgan.",
     ]),
-    ("02-kabinet-kamera.png", "4. Tiriklikni tekshirish (liveness)", [
+    ("02-kabinet-kamera.png", "Tiriklikni tekshirish (liveness)", [
         "Kamera yoqiladi va server <b>tasodifiy</b> tanlagan bitta harakat so'raladi: ko'zni qisish, og'izni "
         "ochish yoki boshni chapga/o'ngga burish. Harakat server tomonida tanlangani uchun oldindan yozib "
         "olingan videoni ko'rsatib aldab bo'lmaydi.",
@@ -70,35 +72,35 @@ STEPS: list[tuple[str | None, str, list[str]]] = [
         "Kadrlar WebP formatida (480 piksel) yuboriladi — bu JPEG'dan uch barobar kichik, tanish aniqligiga "
         "ta'siri esa sezilmaydi (o'xshashlik 0,98+). Sekin internetda ham tez ishlashi uchun shunday qilingan.",
     ]),
-    ("03-kabinet-royxat-natija.png", "5. Ro'yxatdan o'tish yakunlandi", [
+    ("03-kabinet-royxat-natija.png", "Ro'yxatdan o'tish yakunlandi", [
         "Server kadrlardan eng sifatlilarini tanlab, yuz shablonini yaratadi va shifrlab saqlaydi. "
         "Kadrlarning o'zi diskka ham, jurnalga ham yozilmaydi.",
         "Shu bosqichda <b>takroriy ro'yxatdan o'tish</b> ham tekshiriladi: agar bu yuz allaqachon boshqa "
         "hisobga bog'langan bo'lsa, yangi hisob ochilmaydi.",
     ]),
-    ("04-kabinet-karta.png", "6. Bank kartasini ulash", [
+    ("04-kabinet-karta.png", "Bank kartasini ulash", [
         "Mijoz Uzcard yoki Humo kartasini ulaydi. <b>Karta raqami serverda saqlanmaydi</b>: protsessing "
         "(Payme) kartani tokenga aylantiradi, bazada faqat shifrlangan token va niqoblangan raqam qoladi.",
         "Kartani ulash uchun FacePay PIN'i talab qilinadi — ya'ni buni faqat hisob egasi qila oladi.",
     ]),
-    ("05-kabinet-karta-sms.png", "7. Kartani SMS kod bilan tasdiqlash", [
+    ("05-kabinet-karta-sms.png", "Kartani SMS kod bilan tasdiqlash", [
         "Kartaga bankda bog'langan telefon raqamiga SMS kod yuboriladi. Bu — kartaning haqiqatan shu odamga "
         "tegishli ekanini tasdiqlaydi, ya'ni birovning kartasini ulab bo'lmaydi.",
         "Kod 3 marta xato kiritilsa, karta o'chiriladi va qaytadan ulash kerak bo'ladi. "
         "Skrinshotda demo rejim ko'rsatilgan: haqiqiy SMS yuborilmaydi, kod har doim 666666.",
     ]),
-    ("06-kabinet-kartalar.png", "8. Kartalarni boshqarish", [
+    ("06-kabinet-kartalar.png", "Kartalarni boshqarish", [
         "Mijoz uchtagacha karta ulashi, asosiysini tanlashi va keraksizini o'chirishi mumkin. "
         "To'lovlar asosiy kartadan yechiladi.",
         "Karta o'chirilganda protsessingdagi token ham bekor qilinadi.",
     ]),
-    ("07-kabinet-tarix.png", "9. To'lovlar tarixi", [
+    ("07-kabinet-tarix.png", "To'lovlar tarixi", [
         "Mijoz o'z to'lovlarini ko'radi: qayerda, qachon, qancha va qaysi kartadan. "
         "Ro'yxatda <b>rad etilgan urinishlar ham</b> ko'rsatiladi — agar kimdir uning yuzi bilan to'lashga "
         "uringan bo'lsa, foydalanuvchi buni darhol sezadi.",
         "Tarixni ko'rish uchun PIN talab qilinadi.",
     ]),
-    ("08-kabinet-sozlamalar.png", "10. PIN tiklash, makiyaj shabloni, ma'lumotlarni o'chirish", [
+    ("08-kabinet-sozlamalar.png", "PIN tiklash, makiyaj shabloni, ma'lumotlarni o'chirish", [
         "<b>PIN esdan chiqsa</b>, uni yuz orqali tiklash mumkin: shaxs 1:N qidiruv bilan tasdiqlanadi va "
         "yangi PIN o'rnatiladi. Buning uchun yuz hisob egasiga ishonchli mos kelishi hamda butun bazada "
         "eng yaqin odam aynan shu foydalanuvchi bo'lishi shart.",
@@ -108,7 +110,7 @@ STEPS: list[tuple[str | None, str, list[str]]] = [
         "o'chiriladi (PIN va yuz bilan tasdiqlanadi).",
     ]),
 
-    ("08b-kabinet-pauza.png", "10a. Yuz orqali to'lovni vaqtincha to'xtatish va ma'lumotlarni yuklab olish", [
+    ("08b-kabinet-pauza.png", "Yuz orqali to'lovni vaqtincha to'xtatish va ma'lumotlarni yuklab olish", [
         "Telefon yo'qolsa yoki shubhali to'lov ko'rinsa, foydalanuvchi yuz orqali to'lovni bitta tugma bilan "
         "o'chirib qo'yadi. Shablonlar saqlanib qoladi — keyin qayta yoqish mumkin. Bu GDPR va BIPA talab "
         "qiladigan \"rozilikni istalgan vaqtda qaytarib olish\" huquqining amaliy ko'rinishi.",
@@ -117,75 +119,75 @@ STEPS: list[tuple[str | None, str, list[str]]] = [
         "ko'chirish huquqi. Yuz shablonining o'zi berilmaydi, chunki u shifrlangan va boshqa tizimda "
         "ishlatib bo'lmaydi.",
     ]),
-    ("09-ekran-sozlash.png", "11. Do'kondagi mijoz ekranini sozlash", [
-        "Mijozga qaratilgan kamerali qurilma (planshet yoki telefon) bir marta ro'yxatdan o'tkaziladi. "
+    ("09-ekran-sozlash.png", "Mijozga qaragan ekranni sozlash", [
+        "Savdo yoki xizmat nuqtasida mijozga qaratilgan kamerali qurilma (planshet yoki telefon) bir marta ro'yxatdan o'tkaziladi. "
         "Qurilma brauzerning o'zida Ed25519 kalit juftligini yaratadi; yopiq kalitni eksport qilib bo'lmaydi "
         "va u faqat shu qurilmada qoladi. Server esa faqat ochiq kalitni saqlaydi.",
         "Shundan keyin qurilmaning har bir so'rovi raqamli imzo bilan yuboriladi — soxta terminal nomidan "
         "so'rov yuborib bo'lmaydi.",
     ]),
-    ("10-ekran-ulash-kodi.png", "12. Kassani ulash kodi", [
+    ("10-ekran-ulash-kodi.png", "Kassani ulash kodi", [
         "Mijoz ekrani 6 xonali bir martalik kod ko'rsatadi (10 daqiqa amal qiladi). Bazada kodning o'zi emas, "
         "faqat uning HMAC xeshi saqlanadi.",
         "Bu kod kassa qurilmasini shu mijoz ekraniga bog'laydi. Ulash bir marta bajariladi — har bir mijoz "
         "uchun qayta ulash kerak emas.",
     ]),
-    ("16-kassa-ulash.png", "13. Kassa tomoni: ulanish", [
-        "Sotuvchi kassasi — kamerasiz qurilma. U mijoz ekranida chiqqan kodni kiritadi va o'zining alohida "
+    ("16-kassa-ulash.png", "Kassa tomoni: ulanish", [
+        "Kassa — kassir ishlatadigan, kamerasiz qurilma. U mijoz ekranida chiqqan kodni kiritadi va o'zining alohida "
         "kalitini yaratadi.",
         "Rollar ajratilgan: kassa to'lovni o'zi bajara olmaydi (kamerasi yo'q), mijoz ekrani esa to'lov "
         "so'rovi yarata olmaydi (summani belgilay olmaydi).",
     ]),
-    ("11-ekran-kutish.png", "14. Kutish holati", [
+    ("11-ekran-kutish.png", "Kutish holati", [
         "Mijoz ekrani bo'sh turganda \"Xush kelibsiz\" yozuvini ko'rsatadi va har 2 soniyada yangi to'lov "
         "so'rovi bor-yo'qligini tekshiradi.",
     ]),
-    ("17-kassa-kutilmoqda.png", "15. Kassir summani kiritadi", [
+    ("17-kassa-kutilmoqda.png", "Kassir summani kiritadi", [
         "Sotuvchi summani kiritib, \"To'lovni so'rash\" tugmasini bosadi. Server to'lov so'rovini yaratadi "
         "(3 daqiqa amal qiladi) va uni mijoz ekraniga yuboradi.",
         "Kassa ekranida holat jonli ko'rinadi: kutilmoqda → yuz tekshirilmoqda → to'landi yoki rad etildi. "
         "Sotuvchi istalgan paytda bekor qila oladi.",
     ]),
-    ("12-ekran-tolov.png", "16. Mijoz summani ko'radi va yuzini ko'rsatadi", [
+    ("12-ekran-tolov.png", "Mijoz summani ko'radi va yuzini ko'rsatadi", [
         "Mijoz ekranida summa katta harflar bilan chiqadi va kamera <b>o'zi</b> ishga tushadi — mijoz hech "
         "qanday tugma bosmaydi. Ekranda bajariladigan harakat yoziladi.",
         "Agar yuz tanilmasa yoki harakat bajarilmasa, tizim uch martagacha avtomatik qayta uriniadi, "
         "keyin \"Kassirga murojaat qiling\" deb yozadi. To'lov so'rovi yo'qolmaydi.",
     ]),
-    ("13-ekran-pin.png", "17. Katta summa: PIN mijozning o'z ekranida", [
+    ("13-ekran-pin.png", "Katta summa: PIN mijozning o'z ekranida", [
         "Summa 200 000 so'mdan oshsa yoki tanish ishonchi past bo'lsa, PIN so'raladi. PIN <b>mijoz ekranida</b> "
         "kiritiladi — kassir uni ko'rmaydi.",
         "Ekranda mijozning to'liq ismi emas, niqoblangan ko'rinishi chiqadi (masalan \"G****** Q.\").",
     ]),
-    ("14-ekran-tolandi.png", "18. To'lov muvaffaqiyatli", [
+    ("14-ekran-tolandi.png", "To'lov muvaffaqiyatli", [
         "Mijoz ekranida natija va qaysi kartadan yechilgani ko'rsatiladi. Olti soniyadan keyin ekran "
         "kutish holatiga qaytadi.",
         "Shu paytda server, agar tanish ishonchi yuqori bo'lsa, yuz shablonini asta-sekin yangilaydi — "
         "shu tariqa shablon yillar davomida odam bilan birga \"qariydi\".",
     ]),
-    ("18-kassa-tolandi.png", "19. Kassada natija va kunlik tushum", [
+    ("18-kassa-tolandi.png", "Kassada natija va kunlik tushum", [
         "Kassa ekranida to'lov tasdiqlangani, kimligi (niqoblangan ism) va usuli (yuz yoki yuz + PIN) "
         "ko'rinadi. Pastda bugungi tushum va oxirgi tranzaksiyalar ro'yxati.",
         "Bu ro'yxatda mijozlarning shaxsiy ma'lumotlari ko'rsatilmaydi.",
     ]),
-    ("15-ekran-rad.png", "20. Hujum aniqlanganda", [
+    ("15-ekran-rad.png", "Hujum aniqlanganda", [
         "Skrinshotda tizim fotosurat yoki ekrandagi tasvirni aniqlab, to'lovni rad etgani ko'rsatilgan.",
         "Tizim quyidagi hujumlarni to'xtatadi: chop etilgan foto, telefondagi video, oldindan yozilgan video, "
         "kadrlar orasida yuzni almashtirish, kadrga begona odamning tushishi, bir-biriga juda o'xshash "
         "odamlar (bunday holatda to'lov rad etiladi yoki PIN so'raladi).",
     ]),
 
-    ("19-terminal-sozlash.png", "21. Kassirsiz tezkor terminal: sozlash", [
+    ("19-terminal-sozlash.png", "Kassirsiz tezkor terminal: sozlash", [
         "Kassirsiz rejim qat'iy narxli joylar uchun: kirish nazorati, avtomat, belgilangan narxli xizmat.",
         "Narx <b>serverda</b> saqlanadi. Qurilma buzib olinsa va boshqa summa yuborsa ham, server o'z narxini "
         "qo'llaydi — bu alohida test bilan tekshirilgan.",
     ]),
-    ("20-terminal-tolandi.png", "22. Kassirsiz terminalda to'lov", [
+    ("20-terminal-tolandi.png", "Kassirsiz terminalda to'lov", [
         "Mijoz bitta tugmani bosadi va natija katta harflar bilan chiqadi. Pastda kunlik hisob yuritiladi.",
         "Bu qurilmada klaviatura yo'q, shuning uchun PIN talab qilinadigan summada mijoz kassaga "
         "yo'naltiriladi.",
     ]),
-    ("21-admin-panel.png", "23. Administrator paneli", [
+    ("21-admin-panel.png", "Administrator paneli", [
         "Tizim holati: foydalanuvchilar va shablonlar soni, ulangan kartalar, bugungi to'lovlar va tushum, "
         "rad etish sabablari reytingi, terminallar ro'yxati.",
         "<b>Audit jurnali</b> alohida ahamiyatga ega: har bir yozuv o'zidan oldingisining SHA-256 xeshini "
@@ -222,6 +224,12 @@ def img_tag(name: str) -> str:
     return f'<img src="data:image/png;base64,{data}" alt="{name}">'
 
 
+def _number_sections(html: str) -> str:
+    """Bo'limlarni ketma-ket raqamlaydi — raqamlar qo'lda yozilmaydi, adashmaydi."""
+    counter = iter(range(1, 999))
+    return re.sub(r"<h2>(?!\d)", lambda m: f"<h2>{next(counter)}. ", html)
+
+
 def build_html() -> str:
     parts = []
     for img, title, paragraphs in STEPS:
@@ -237,7 +245,7 @@ def build_html() -> str:
         chart = f'<figure class="wide"><img src="data:image/png;base64,{data}" alt="FAR/FRR">' \
                 f'<figcaption>FAR va FRR egri chiziqlari hamda o\'xshashliklar taqsimoti (LFW)</figcaption></figure>'
 
-    return f"""<!doctype html>
+    html = f"""<!doctype html>
 <html lang="uz"><head><meta charset="utf-8"><title>{TITLE}</title>
 <style>
   @page {{ size: A4; margin: 18mm 16mm; }}
@@ -268,12 +276,12 @@ Ishlab turgan versiya: https://qudratovagulshoda--facepay-web.modal.run · Kod: 
 
 {''.join(parts)}
 
-<section><h2>25. Hujumlar va himoya choralari</h2>
+<section><h2>Hujumlar va himoya choralari</h2>
 <table><tr><th>Hujum</th><th>Himoya</th></tr>{sec_rows}</table>
 <p>Har bir qator avtomatlashtirilgan test bilan tekshiriladi. Loyihada jami 89 ta test bor.</p>
 </section>
 
-<section><h2>24. Tajriba natijalari</h2>
+<section><h2>Tajriba natijalari</h2>
 <p>Aniqlik ochiq LFW (Labeled Faces in the Wild) bazasida o'lchandi: 1680 shaxs, 3294 surat,
 4381 ta haqiqiy va 20 000 ta soxta juftlik.</p>
 <table><tr><th>Ko'rsatkich</th><th>Natija</th></tr>{res_rows}</table>
@@ -286,7 +294,7 @@ yorug' joyda suratga oladi va tizim bir nechta kadrni o'rtachalaydi, shuning uch
 bundan kam bo'ladi.</p>
 </section>
 
-<section><h2>26. Chet eldagi tizimlar bilan taqqoslash</h2>
+<section><h2>Chet eldagi tizimlar bilan taqqoslash</h2>
 <p>Loyiha quyidagi ishlayotgan tizimlar tajribasi va xalqaro talablar asosida to'ldirildi.</p>
 <table>
 <tr><th>Tizim</th><th>Kuchli tomoni</th><th>Muammosi</th></tr>
@@ -321,7 +329,7 @@ kalit almashtirilsa, o'g'irlangan shablonlar butunlay yaroqsiz bo'ladi.</p>
 millionlab foydalanuvchida sinovdan o'tgan tajriba bor.</p>
 </section>
 
-<section><h2>27. Cheklovlar va keyingi ishlar</h2>
+<section><h2>Cheklovlar va keyingi ishlar</h2>
 <ul>
 <li>Uch o'lchovli silikon niqobni oddiy kamera to'liq aniqlay olmaydi — infraqizil yoki chuqurlik kamerasi kerak.</li>
 <li>Chegaralar LFW da o'lchandi; O'zbekiston aholisi suratlarida qayta o'lchash aniqlikni oshiradi.</li>
@@ -336,6 +344,7 @@ Hozirgi demo chet eldagi bulutda, shuning uchun unda faqat sinov ma'lumotlari is
 </ul>
 </section>
 </body></html>"""
+    return _number_sections(html)
 
 
 def main() -> None:
@@ -355,13 +364,16 @@ def main() -> None:
         time.sleep(0.5)
     if proc.poll() is None:
         proc.terminate()
-    import shutil
-
     shutil.rmtree(ROOT / ".tmp_screens", ignore_errors=True)
-    if OUT_PDF.exists():
-        print(f"PDF:  {OUT_PDF} ({OUT_PDF.stat().st_size / 1024 / 1024:.1f} MB)")
-    else:
+    if not OUT_PDF.exists():
         print("PDF yaratilmadi")
+        return
+    print(f"PDF:  {OUT_PDF} ({OUT_PDF.stat().st_size / 1024 / 1024:.1f} MB)")
+    # Ish stolidagi nusxa ham yangilanadi — eski versiya qolib ketmasligi uchun
+    desktop = Path.home() / "Desktop" / "FacePay-hisobot.pdf"
+    if desktop.parent.exists():
+        shutil.copy2(OUT_PDF, desktop)
+        print(f"Ish stoli: {desktop}")
 
 
 if __name__ == "__main__":
