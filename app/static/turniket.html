@@ -30,8 +30,8 @@
   <section id="setup" hidden>
     <h2>Tezkor terminalni ro'yxatdan o'tkazish</h2>
     <p class="muted">Kassirsiz rejim: narx qat'iy va serverda saqlanadi, qurilma uni o'zgartira olmaydi. Masalan: kirish nazorati, avtomat, qat'iy narxli xizmat.</p>
-    <label for="st-name">Joy nomi</label>
-    <input id="st-name" value="Tezkor terminal">
+    <label for="st-name">Tashkilot nomi</label>
+    <input id="st-name" placeholder="masalan: Sport zal «Olimp»" autocomplete="organization">
     <label for="st-fare">Qat'iy narx (so'm)</label>
     <input id="st-fare" type="number" inputmode="numeric" value="10000" min="1">
     <label for="st-admin">Admin kaliti</label>
@@ -67,7 +67,7 @@ $("#st-btn").onclick = (e) => busy(e.target, async () => {
   const k = await newDeviceKey();
   if (!k) return show("#st-result", "err", errText("ed25519"));
   const H = { "X-Admin-Key": $("#st-admin").value };
-  const name = $("#st-name").value.trim() || "Terminal";
+  const name = $("#st-name").value.trim() || "Tashkilot";
   const fare = parseInt($("#st-fare").value, 10);
   let r = await postJSON("/v1/admin/merchants", { name }, H);
   if (r.status !== 201) return show("#st-result", "err", errText(codeOf(r)));

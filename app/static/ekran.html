@@ -31,8 +31,8 @@
   <section id="setup" hidden>
     <h2>Mijoz ekranini ro'yxatdan o'tkazish</h2>
     <p class="muted">Kamerali qurilma (planshet yoki telefon) mijozga qaratib qo'yiladi. Bir marta bajariladi. Yopiq kalit shu qurilmada qoladi va uni eksport qilib bo'lmaydi.</p>
-    <label for="st-name">Do'kon / filial nomi</label>
-    <input id="st-name" value="Do'kon">
+    <label for="st-name">Tashkilot nomi</label>
+    <input id="st-name" placeholder="masalan: Kafe «Bahor»" autocomplete="organization">
     <label for="st-admin">Admin kaliti</label>
     <input id="st-admin" type="password" autocomplete="off">
     <button class="primary" id="st-btn">Ro'yxatdan o'tkazish</button>
@@ -99,7 +99,7 @@ $("#st-btn").onclick = (e) => busy(e.target, async () => {
   const k = await newDeviceKey();
   if (!k) return show("#st-result", "err", errText("ed25519"));
   const H = { "X-Admin-Key": $("#st-admin").value };
-  const name = $("#st-name").value.trim() || "Do'kon";
+  const name = $("#st-name").value.trim() || "Tashkilot";
   let r = await postJSON("/v1/admin/merchants", { name }, H);
   if (r.status !== 201) return show("#st-result", "err", errText(codeOf(r)));
   r = await postJSON("/v1/admin/terminals", { name: `ekran-${name}`.slice(0, 120), merchant_id: r.data.merchant_id,
