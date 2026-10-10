@@ -156,9 +156,20 @@ SHOTS: list[tuple[str, str, str, str | None]] = [
       <li><span><div>Do'kon "Mehr"</div><div class="meta">07.10 19:41 · 8600 **** **** 9012</div></span>
           <span><span class="amount">350 000</span> <span class="tag ok">to'landi</span></span></li>
       <li><span><div>Kafe "Bahor"</div><div class="meta">07.10 10:14 · Yuz tanilmadi</div></span>
-          <span><span class="amount">15 000</span> <span class="tag err">rad etildi</span></span></li>`;''', None),
+          <span><span class="amount">15 000</span> <span class="tag err">rad etildi</span></span></li>`;
+     ul.querySelectorAll("li").forEach((li, i) => {
+       if (i > 2) return;
+       const b = document.createElement("button");
+       b.className = "link"; b.style.color = "var(--err)"; b.textContent = "Bu men emasman";
+       li.lastElementChild.appendChild(b);
+     });''', None),
     ("08-kabinet-sozlamalar", "index.html", tab("settings") + fill({
         "#st-phone": "+998901234567", "#rp-pin": "7392", "#va-pin": "4821"}), None),
+
+    ("08b-kabinet-pauza", "index.html", tab("settings")
+     + fill({"#fz-pin": "1234"})
+     + result("#fz-result", "warn",
+              "Yuz orqali to'lov to'xtatildi. Endi hech kim sizning yuzingiz bilan to'lay olmaydi."), None),
 
     # --- Mijoz ekrani (do'kondagi kamerali qurilma) ---
     ("09-ekran-sozlash", "ekran.html", 'screen("setup");', None),
@@ -200,7 +211,13 @@ SHOTS: list[tuple[str, str, str, str | None]] = [
       <li><span><div>14:32</div><div class="meta">yuz</div></span><span><span class="amount">67 000</span> <span class="tag ok">✓</span></span></li>
       <li><span><div>13:58</div><div class="meta">yuz + PIN</div></span><span><span class="amount">350 000</span> <span class="tag ok">✓</span></span></li>
       <li><span><div>12:05</div><div class="meta">yuz</div></span><span><span class="amount">25 000</span> <span class="tag ok">✓</span></span></li>
-      <li><span><div>10:14</div><div class="meta">Yuz tanilmadi</div></span><span><span class="amount">15 000</span> <span class="tag err">✗</span></span></li>`;''', None),
+      <li><span><div>10:14</div><div class="meta">Yuz tanilmadi</div></span><span><span class="amount">15 000</span> <span class="tag err">✗</span></span></li>`;
+     document.querySelectorAll("#tx-list li").forEach((li, i) => {
+       if (i > 2) return;
+       const b = document.createElement("button");
+       b.className = "link"; b.style.marginLeft = "10px"; b.textContent = "Qaytarish";
+       li.lastElementChild.appendChild(b);
+     });''', None),
 
     # --- Kassirsiz tezkor terminal ---
     ("19-terminal-sozlash", "turniket.html", '''document.querySelector("#setup").hidden = false;

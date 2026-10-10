@@ -108,6 +108,15 @@ STEPS: list[tuple[str | None, str, list[str]]] = [
         "o'chiriladi (PIN va yuz bilan tasdiqlanadi).",
     ]),
 
+    ("08b-kabinet-pauza.png", "10a. Yuz orqali to'lovni vaqtincha to'xtatish va ma'lumotlarni yuklab olish", [
+        "Telefon yo'qolsa yoki shubhali to'lov ko'rinsa, foydalanuvchi yuz orqali to'lovni bitta tugma bilan "
+        "o'chirib qo'yadi. Shablonlar saqlanib qoladi — keyin qayta yoqish mumkin. Bu GDPR va BIPA talab "
+        "qiladigan \"rozilikni istalgan vaqtda qaytarib olish\" huquqining amaliy ko'rinishi.",
+        "Shu bo'limda foydalanuvchi o'zida saqlanayotgan barcha ma'lumotlarni (ism, telefon, kartalar, "
+        "to'lovlar, shablonlar ro'yxati) fayl sifatida yuklab oladi — GDPR 20-moddasidagi ma'lumotlarni "
+        "ko'chirish huquqi. Yuz shablonining o'zi berilmaydi, chunki u shifrlangan va boshqa tizimda "
+        "ishlatib bo'lmaydi.",
+    ]),
     ("09-ekran-sozlash.png", "11. Do'kondagi mijoz ekranini sozlash", [
         "Mijozga qaratilgan kamerali qurilma (planshet yoki telefon) bir marta ro'yxatdan o'tkaziladi. "
         "Qurilma brauzerning o'zida Ed25519 kalit juftligini yaratadi; yopiq kalitni eksport qilib bo'lmaydi "
@@ -259,12 +268,12 @@ Ishlab turgan versiya: https://qudratovagulshoda--facepay-web.modal.run · Kod: 
 
 {''.join(parts)}
 
-<section><h2>24. Hujumlar va himoya choralari</h2>
+<section><h2>25. Hujumlar va himoya choralari</h2>
 <table><tr><th>Hujum</th><th>Himoya</th></tr>{sec_rows}</table>
 <p>Har bir qator avtomatlashtirilgan test bilan tekshiriladi. Loyihada jami 89 ta test bor.</p>
 </section>
 
-<section><h2>25. Tajriba natijalari</h2>
+<section><h2>24. Tajriba natijalari</h2>
 <p>Aniqlik ochiq LFW (Labeled Faces in the Wild) bazasida o'lchandi: 1680 shaxs, 3294 surat,
 4381 ta haqiqiy va 20 000 ta soxta juftlik.</p>
 <table><tr><th>Ko'rsatkich</th><th>Natija</th></tr>{res_rows}</table>
@@ -277,7 +286,42 @@ yorug' joyda suratga oladi va tizim bir nechta kadrni o'rtachalaydi, shuning uch
 bundan kam bo'ladi.</p>
 </section>
 
-<section><h2>26. Cheklovlar va keyingi ishlar</h2>
+<section><h2>26. Chet eldagi tizimlar bilan taqqoslash</h2>
+<p>Loyiha quyidagi ishlayotgan tizimlar tajribasi va xalqaro talablar asosida to'ldirildi.</p>
+<table>
+<tr><th>Tizim</th><th>Kuchli tomoni</th><th>Muammosi</th></tr>
+<tr><td>Alipay Smile to Pay (Xitoy, 2017)</td><td>3D kamera va liveness; keng tarqalgan</td>
+    <td>Ishonch muammosi: 2017-yilgi so'rovda respondentlarning ~70% i xavfsizlikdan, 77% i maxfiylikdan xavotirda bo'lgan</td></tr>
+<tr><td>Moscow Metro Face Pay (2021)</td><td>1500+ turniket, 100 mln+ o'tish; sinovda xato ~0,01%</td>
+    <td>2022-yilda ba'zi foydalanuvchilardan pul bir necha marta yechilgan; kuzatuv bo'yicha tanqid</td></tr>
+<tr><td>Mastercard Biometric Checkout (2022)</td><td>Standart va sertifikatlash talabi; yuz tasviri qurilmada qoladi</td>
+    <td>Texnik talablari ochiq e'lon qilinmagan</td></tr>
+<tr><td>NIST SP 800-63A, FIDO, ISO/IEC 30107</td><td>Aniq talablar: majburiy rozilik, liveness sinovi (PAD), IAPAR chegarasi</td>
+    <td>Sertifikatlash laboratoriya sinovini talab qiladi</td></tr>
+</table>
+<p><b>Ulardan o'rganib qo'shilgan imkoniyatlar:</b></p>
+<table>
+<tr><th>Muammo</th><th>Loyihadagi yechim</th></tr>
+<tr><td>Bir to'lov uchun bir necha marta pul yechilishi (Moskva, 2022)</td>
+    <td>Bir xil terminalda bir xil summa 60 soniya ichida takrorlansa, to'lov rad etiladi</td></tr>
+<tr><td>Rozilikni qaytarib olish (GDPR, BIPA)</td>
+    <td>Yuz orqali to'lovni vaqtincha o'chirish va qayta yoqish; shablonlar saqlanadi</td></tr>
+<tr><td>Begona to'lovga e'tiroz</td>
+    <td>Tarixda "Bu men emasman": tranzaksiya nizoli deb belgilanadi va yuz to'lovlari darhol to'xtatiladi</td></tr>
+<tr><td>Tovar qaytarilishi</td><td>Kassadan to'liq yoki qisman qaytarish; pul kartaga yoki balansga qaytadi</td></tr>
+<tr><td>Ma'lumotlarni ko'chirish huquqi (GDPR 20-modda)</td><td>Barcha ma'lumotlarni JSON fayl sifatida yuklab olish</td></tr>
+<tr><td>Biometrik ma'lumotni muddatsiz saqlash (BIPA: 3 yil)</td>
+    <td>Saqlash muddati siyosati: 3 yil faolliksiz hisobning shablonlari avtomatik o'chiriladi</td></tr>
+<tr><td>Rozilik matni keyin o'zgarishi</td><td>Rozilik versiyasi va sanasi saqlanadi, eksport faylida ko'rinadi</td></tr>
+</table>
+<p><b>Nimada ulardan oldinda:</b> ko'pchilik tizimlarda yuz shabloni shifrlangan bo'lsa-da, asl vektor ko'rinishida
+saqlanadi. Bu loyihada shablon avval maxfiy ortogonal matritsa bilan o'zgartiriladi (bekor qilinadigan biometriya):
+kalit almashtirilsa, o'g'irlangan shablonlar butunlay yaroqsiz bo'ladi.</p>
+<p><b>Nimada ortda:</b> ularda 3D yoki infraqizil kameralar, laboratoriya sertifikati (ISO/IEC 30107-3) va
+millionlab foydalanuvchida sinovdan o'tgan tajriba bor.</p>
+</section>
+
+<section><h2>27. Cheklovlar va keyingi ishlar</h2>
 <ul>
 <li>Uch o'lchovli silikon niqobni oddiy kamera to'liq aniqlay olmaydi — infraqizil yoki chuqurlik kamerasi kerak.</li>
 <li>Chegaralar LFW da o'lchandi; O'zbekiston aholisi suratlarida qayta o'lchash aniqlikni oshiradi.</li>
@@ -285,6 +329,8 @@ bundan kam bo'ladi.</p>
 hozircha demo rejimda ishlaydi va haqiqiy pul yechilmaydi.</li>
 <li>PIN tiklashda qo'shimcha SMS tasdiqlash qo'shilishi kerak.</li>
 <li>Millionlab foydalanuvchi uchun qidiruvni FAISS/HNSW indeksiga o'tkazish talab qilinadi.</li>
+<li>Liveness ISO/IEC 30107-3 bo'yicha mustaqil laboratoriyada sinovdan o'tkazilmagan;
+NIST SP 800-63A talab qiladigan IAPAR ko'rsatkichi o'lchanmagan.</li>
 <li>Qonunchilik talabi: fuqarolarning shaxsiy ma'lumotlari O'zbekiston hududidagi serverlarda saqlanishi shart.
 Hozirgi demo chet eldagi bulutda, shuning uchun unda faqat sinov ma'lumotlari ishlatiladi.</li>
 </ul>
