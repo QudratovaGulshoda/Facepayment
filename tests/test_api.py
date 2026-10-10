@@ -497,10 +497,12 @@ def portal(env, path, payload):
 PHONE = "+998948431011"
 
 
-def portal_enroll(env, emb, pin="4821"):
+def portal_enroll(env, emb, pin="4821", balance=1_000_000):
     r = portal(env, "/v1/portal/enroll", {**portal_capture(env, emb), "phone": PHONE,
                                           "full_name": "Gulshoda Qudratova", "pin": pin, "consent": True})
     assert r.status_code == 201, r.text
+    if balance:
+        env["http"].post("/v1/admin/topup", json={"phone": PHONE, "amount": balance}, headers=ADMIN)
 
 
 def test_portal_full_customer_flow(env):
@@ -766,3 +768,105 @@ def test_server_accepts_webp_frames(env):
     img = env["rng"].integers(40, 216, size=(60, 80, 3)).astype(np.uint8)
     ok, buf = _cv2.imencode(".webp", img, [_cv2.IMWRITE_WEBP_QUALITY, 70])
     assert ok and decode_frame(base64.b64encode(buf.tobytes()).decode()).shape == (60, 80, 3)
+
+
+# ---------------- Chet el tizimlaridan o'rganilgan qo'shimchalar ----------------
+
+def test_duplicate_charge_is_blocked(env):
+    """Moskva metrosida 2022-yilda foydalanuvchilardan bir necha marta pul yechilgan.
+    Bir xil terminal, bir xil summa 60 soniya ichida takrorlansa — rad etiladi."""
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    assert pay(env, me, 25_000).json()["status"] == "approved"
+    second = pay(env, me, 25_000).json()
+    assert second["status"] == "declined" and second["reason"] == "takroriy_tolov"
+    assert pay(env, me, 30_000).json()["status"] == "approved"   # boshqa summa — o'tadi
+
+
+def test_user_can_switch_face_payments_off_and_on(env):
+    """GDPR/BIPA: rozilikni istalgan vaqtda qaytarib olish mumkin. Hisob va shablonlar qoladi."""
+    me = random_unit(env["rng"])
+    portal_enroll(env, me)
+    assert portal(env, "/v1/portal/freeze", {"phone": PHONE, "pin": "4821", "enabled": False}).status_code == 200
+    r = pay(env, me, 25_000).json()
+    assert r["status"] == "declined" and r["reason"] == "yuz_tolovlari_ochirilgan"
+    portal(env, "/v1/portal/freeze", {"phone": PHONE, "pin": "4821", "enabled": True})
+    assert pay(env, me, 25_000).json()["status"] == "approved"
+
+
+def test_dispute_marks_transaction_and_freezes_face_payments(env):
+    """"Bu men emasman": nizo belgilanadi va ehtiyot chorasi sifatida yuz to'lovlari to'xtaydi."""
+    me = random_unit(env["rng"])
+    portal_enroll(env, me)
+    tx = pay(env, me, 25_000).json()["transaction_id"]
+    r = portal(env, "/v1/portal/dispute", {"phone": PHONE, "pin": "4821", "transaction_id": tx})
+    assert r.json() == {"disputed": True, "face_payments_enabled": False}
+    assert pay(env, me, 30_000).json()["reason"] == "yuz_tolovlari_ochirilgan"
+    hist = portal(env, "/v1/portal/history", {"phone": PHONE, "pin": "4821"}).json()["transactions"]
+    assert next(t for t in hist if t["id"] == tx)["disputed"] is True
+    assert portal(env, "/v1/portal/dispute", {"phone": PHONE, "pin": "4821", "transaction_id": "yoq"}).status_code == 404
+
+
+def test_cashier_can_refund_full_and_partial(env):
+    me = random_unit(env["rng"])
+    enroll(env, me, balance=100_000)
+    tx = pay(env, me, 40_000).json()["transaction_id"]
+    kassa = pair_cashier(env)
+    half = kassa.post("/v1/cashier/refund", {"transaction_id": tx, "amount": 15_000}).json()
+    assert half["refunded"] == 15_000 and half["status"] == "partially_refunded"
+    full = kassa.post("/v1/cashier/refund", {"transaction_id": tx}).json()
+    assert full["refunded"] == 40_000 and full["status"] == "refunded"
+    assert kassa.post("/v1/cashier/refund", {"transaction_id": tx}).status_code == 409   # qayta qaytarib bo'lmaydi
+
+
+def test_refund_returns_money_to_customer(env):
+    me = random_unit(env["rng"])
+    enroll(env, me, balance=100_000)
+    tx = pay(env, me, 40_000).json()["transaction_id"]
+    kassa = pair_cashier(env)
+    kassa.post("/v1/cashier/refund", {"transaction_id": tx})
+    with dbmod.session_factory()() as s:
+        balance = s.execute(text("select balance from users")).scalar()
+        merchant = s.execute(text("select balance from merchants where name='Do''kon'")).scalar()
+    assert balance == 100_000 and merchant == 0
+
+
+def test_other_merchant_cannot_refund(env):
+    me = random_unit(env["rng"])
+    enroll(env, me, balance=100_000)
+    tx = pay(env, me, 40_000).json()["transaction_id"]
+    stranger = fixed_price_terminal(env)
+    assert stranger.post("/v1/cashier/refund", {"transaction_id": tx}).status_code == 404
+
+
+def test_data_export(env):
+    """GDPR 20-modda: foydalanuvchi o'z ma'lumotlarini olishi mumkin. Shablonning o'zi berilmaydi."""
+    me = random_unit(env["rng"])
+    portal_enroll(env, me)
+    link_card(env, phone=PHONE)
+    pay(env, me, 25_000)
+    d = portal(env, "/v1/portal/export", {"phone": PHONE, "pin": "4821"}).json()
+    assert d["shaxs"]["telefon"] == PHONE and d["shaxs"]["rozilik_versiyasi"] == "1.0"
+    assert d["kartalar"][0]["niqoblangan"] == "8600 **** **** 9012"
+    assert d["tolovlar"][0]["summa"] == 25_000
+    assert d["yuz_shablonlari"] and "shablon" in d["yuz_shablonlari"][0]["izoh"]
+    body = portal(env, "/v1/portal/export", {"phone": PHONE, "pin": "4821"}).text
+    assert "embedding" not in body and "template_enc" not in body
+
+
+def test_retention_policy_removes_old_templates(env):
+    """BIPA: biometrik ma'lumot oxirgi aloqadan 3 yil ichida yo'q qilinishi kerak."""
+    from datetime import timedelta
+
+    from app.db import FaceTemplate, User, utcnow
+
+    me = random_unit(env["rng"])
+    enroll(env, me)
+    with dbmod.session_factory()() as s:
+        s.query(User).update({User.last_activity_at: utcnow() - timedelta(days=4 * 365)})
+        s.commit()
+    r = env["http"].post("/v1/admin/cleanup", headers=ADMIN).json()
+    assert r["templates_expired"] == 1
+    with dbmod.session_factory()() as s:
+        assert s.query(FaceTemplate).count() == 0
+    assert pay(env, me, 25_000).json()["reason"] == "yuz_tanilmadi"

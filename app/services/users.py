@@ -115,7 +115,7 @@ def enroll(db: Session, terminal: Terminal, phone: str, full_name: str, pin: str
         db.commit()
         raise ServiceError("yuz_allaqachon_royxatda", 409)
 
-    user = User(id=new_id(), consent_at=utcnow(), pin_hash=hash_pin(pin),
+    user = User(id=new_id(), consent_at=utcnow(), consent_version=s.consent_version, pin_hash=hash_pin(pin),
                 phone_hash=core.crypto.lookup_hash(phone), phone_enc=b"", full_name_enc=b"")
     user.phone_enc = core.crypto.encrypt_str(phone, f"user:{user.id}:phone")
     user.full_name_enc = core.crypto.encrypt_str(full_name, f"user:{user.id}:name")
@@ -190,6 +190,81 @@ def reset_pin(db: Session, terminal: Terminal, phone: str, new_pin: str, capture
     user.locked_until = None
     audit(db, f"terminal:{terminal.id}", "pin_reset", user_id=user.id, score=round(result.score, 3))
     db.commit()
+
+
+def set_face_payments(db: Session, phone: str, pin: str, enabled: bool) -> dict:
+    """Yuz orqali to'lovni vaqtincha o'chirish yoki qayta yoqish.
+
+    GDPR va BIPA talabi: rozilikni istalgan vaqtda qaytarib olish mumkin bo'lishi kerak.
+    Butunlay o'chirishdan farqi — shablonlar saqlanib qoladi, foydalanuvchi keyin qayta yoqa oladi.
+    """
+    user = user_for_pin(db, phone, pin)
+    user.face_payments_enabled = enabled
+    user.frozen_reason = None if enabled else "foydalanuvchi"
+    audit(db, "portal", "face_payments_enabled" if enabled else "face_payments_disabled", user_id=user.id)
+    db.commit()
+    return {"face_payments_enabled": enabled}
+
+
+def export_data(db: Session, phone: str, pin: str) -> dict:
+    """Ma'lumotlarni ko'chirish huquqi (GDPR 20-modda): foydalanuvchi o'z ma'lumotlarini oladi.
+
+    Biometrik shablonning o'zi berilmaydi — u shifrlangan va boshqa tizimda ishlatib bo'lmaydi;
+    uning o'rniga nechta shablon borligi va qachon yaratilgani ko'rsatiladi.
+    """
+    from app.db import Card, Transaction
+
+    core = get_core()
+    user = user_for_pin(db, phone, pin)
+    db.commit()
+    txs = db.scalars(select(Transaction).where(Transaction.user_id == user.id)
+                     .order_by(Transaction.created_at.desc()).limit(500))
+    return {
+        "shaxs": {
+            "ism": core.crypto.decrypt_str(user.full_name_enc, f"user:{user.id}:name"),
+            "telefon": core.crypto.decrypt_str(user.phone_enc, f"user:{user.id}:phone"),
+            "royxatdan_otgan": user.created_at.isoformat() + "Z",
+            "rozilik_sanasi": user.consent_at.isoformat() + "Z",
+            "rozilik_versiyasi": user.consent_version,
+            "yuz_tolovlari_yoqilgan": user.face_payments_enabled,
+            "oxirgi_faollik": user.last_activity_at.isoformat() + "Z",
+        },
+        "yuz_shablonlari": [
+            {"turi": t.source, "nomi": t.label, "yaratilgan": t.created_at.isoformat() + "Z",
+             "oxirgi_moslik": t.last_matched_at.isoformat() + "Z" if t.last_matched_at else None,
+             "izoh": "shablonning o'zi shifrlangan holda saqlanadi va berilmaydi"}
+            for t in user.templates],
+        "kartalar": [{"niqoblangan": c.masked, "tasdiqlangan": c.verified, "asosiy": c.is_default,
+                      "ulangan": c.created_at.isoformat() + "Z"}
+                     for c in db.scalars(select(Card).where(Card.user_id == user.id))],
+        "tolovlar": [{"sana": t.created_at.isoformat() + "Z", "summa": t.amount, "holat": t.status,
+                      "usul": t.method, "manba": t.funding, "qaytarilgan": t.refunded_amount}
+                     for t in txs],
+    }
+
+
+def retention_cleanup(db: Session) -> int:
+    """Saqlash muddati siyosati: uzoq vaqt ishlatilmagan hisoblarning biometrik shablonlari o'chiriladi.
+
+    BIPA: biometrik ma'lumot oxirgi aloqadan keyin 3 yil ichida yo'q qilinishi kerak.
+    Hisobning o'zi qoladi — foydalanuvchi kelib qayta ro'yxatdan o'tishi mumkin.
+    """
+    s = get_settings()
+    cutoff = utcnow() - timedelta(days=s.retention_days)
+    core = get_core()
+    removed = 0
+    for user in db.scalars(select(User).where(User.status == "active", User.last_activity_at < cutoff)):
+        if not user.templates:
+            continue
+        db.execute(delete(FaceTemplate).where(FaceTemplate.user_id == user.id))
+        user.face_payments_enabled = False
+        user.frozen_reason = "saqlash_muddati"
+        core.gallery.remove_user(user.id)
+        audit(db, "system", "templates_expired", user_id=user.id, days=s.retention_days)
+        removed += 1
+    if removed:
+        db.commit()
+    return removed
 
 
 def delete_user_data(db: Session, terminal: Terminal, phone: str, pin: str, capture: CaptureResult) -> None:

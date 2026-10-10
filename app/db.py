@@ -50,6 +50,13 @@ class User(Base):
     pin_failed: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     consent_at: Mapped[datetime] = mapped_column(DateTime)
+    # Rozilik matnining versiyasi: keyin matn o'zgarsa, kim nimaga rozi bo'lganini bilish uchun
+    consent_version: Mapped[str] = mapped_column(String(16), default="1.0")
+    # Foydalanuvchi yuz orqali to'lovni vaqtincha o'chirib qo'yishi mumkin (rozilikni qaytarib olish)
+    face_payments_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    frozen_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Saqlash muddati siyosati uchun: oxirgi faollik (BIPA: oxirgi aloqadan 3 yil)
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     last_enrolled_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     balance: Mapped[int] = mapped_column(Integer, default=0)  # so'm (demo; real tizimda bank hisobi)
@@ -152,6 +159,9 @@ class Transaction(Base):
     decline_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     pin_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    refunded_amount: Mapped[int] = mapped_column(Integer, default=0)
+    refunded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    disputed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

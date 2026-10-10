@@ -58,8 +58,10 @@
 
     <section>
       <div class="total"><h2>Bugungi tushum</h2><span class="amount" id="today">—</span></div>
+      <p class="muted">Tovar qaytarilsa, to'lov yonidagi "Qaytarish" tugmasini bosing.</p>
       <ul class="list" id="tx-list"></ul>
       <button class="link" id="refresh">Yangilash</button>
+      <div class="result" id="refund-result" hidden></div>
     </section>
 
     <footer><button class="link" id="reset-btn" style="color:var(--muted)">Kassani qayta ulash</button></footer>
@@ -157,6 +159,19 @@ async function loadHistory() {
     right.innerHTML = `<span class="amount"></span> <span class="tag ${kind}"></span>`;
     right.querySelector(".amount").textContent = fmt(t.amount);
     right.querySelector(".tag").textContent = t.status === "approved" ? "✓" : t.status === "declined" ? "✗" : "…";
+    if (t.status === "approved" && t.refunded < t.amount) {
+      const b = document.createElement("button");
+      b.className = "link"; b.style.marginLeft = "10px"; b.textContent = "Qaytarish";
+      b.onclick = () => busy(b, async () => {
+        if (!confirm(`${fmt(t.amount - t.refunded)} so'm qaytarilsinmi?`)) return;
+        const r2 = await device.post("/v1/cashier/refund", { transaction_id: t.id });
+        show("#refund-result", r2.status === 200 ? "ok" : "err",
+             r2.status === 200 ? `✓ ${fmt(r2.data.refunded)} so'm qaytarildi` : errText(codeOf(r2)));
+        loadHistory();
+      });
+      right.appendChild(b);
+    }
+    if (t.refunded) right.insertAdjacentHTML("beforeend", ' <span class="tag warn">qaytarilgan</span>');
     li.append(left, right);
     ul.appendChild(li);
   }

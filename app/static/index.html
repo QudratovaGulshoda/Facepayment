@@ -81,6 +81,27 @@
 
   <!-- Sozlamalar -->
   <section id="tab-settings" hidden>
+    <h2>Yuz orqali to'lovni vaqtincha to'xtatish</h2>
+    <p class="muted">Telefoningizni yo'qotsangiz yoki shubhali to'lov ko'rsangiz, yuz orqali to'lovni darhol
+      o'chirib qo'ying. Shablonlaringiz saqlanib qoladi, keyin qayta yoqasiz. Karta va boshqa usullar ishlayveradi.</p>
+    <label for="fz-pin">PIN</label>
+    <input id="fz-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
+    <div class="row">
+      <button class="danger" id="fz-off">To'xtatish</button>
+      <button class="secondary" id="fz-on">Qayta yoqish</button>
+    </div>
+    <div class="result" id="fz-result" hidden></div>
+
+    <hr>
+    <h2>Ma'lumotlarimni yuklab olish</h2>
+    <p class="muted">Sizda saqlanayotgan barcha ma'lumotlar (ism, telefon, kartalar, to'lovlar, shablonlar
+      ro'yxati) fayl ko'rinishida beriladi. Yuz shablonining o'zi berilmaydi — u shifrlangan.</p>
+    <label for="ex-pin">PIN</label>
+    <input id="ex-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
+    <button class="secondary" id="ex-btn">Yuklab olish</button>
+    <div class="result" id="ex-result" hidden></div>
+
+    <hr>
     <h2>PIN esdan chiqdimi?</h2>
     <p class="muted">Shaxsingiz yuzingiz orqali tasdiqlanadi va yangi PIN o'rnatiladi. Hisob bloklangan bo'lsa, blok ham ochiladi.</p>
     <label for="st-phone">Telefon</label>
@@ -226,13 +247,56 @@ $("#hs-btn").onclick = (e) => busy(e.target, async () => {
     left.querySelector(".m").textContent = t.merchant;
     left.querySelector(".meta").textContent = `${when} · ${t.funding === "balance" ? "balans" : (t.funding || "")}` +
       (t.status === "declined" ? ` · ${errText(t.reason)}` : "");
+    if (t.refunded) left.querySelector(".meta").textContent += ` · ${fmt(t.refunded)} so'm qaytarildi`;
     const right = document.createElement("span");
     right.innerHTML = `<span class="amount"></span> <span class="tag ${kind}"></span>`;
     right.querySelector(".amount").textContent = fmt(t.amount);
     right.querySelector(".tag").textContent = label;
     li.append(left, right);
+    if (t.status === "approved" && !t.disputed) {
+      const d = document.createElement("button");
+      d.className = "link"; d.style.color = "var(--err)"; d.textContent = "Bu men emasman";
+      d.onclick = () => busy(d, async () => {
+        if (!confirm("To'lov nizoli deb belgilanadi va yuz orqali to'lovlar darhol to'xtatiladi. Davom etasizmi?")) return;
+        const r2 = await postJSON("/v1/portal/dispute", { phone: phoneVal("#hs-phone"), pin: $("#hs-pin").value,
+                                                          transaction_id: t.id });
+        show("#hs-result", r2.status === 200 ? "warn" : "err", r2.status === 200
+          ? "To'lov nizoli deb belgilandi va yuz orqali to'lovlar to'xtatildi. Bank bilan bog'laning."
+          : errText(codeOf(r2)));
+      });
+      right.appendChild(d);
+    }
+    if (t.disputed) right.insertAdjacentHTML("beforeend", ' <span class="tag err">nizoli</span>');
     ul.appendChild(li);
   }
+});
+
+// ---------- To'lovni to'xtatish / qayta yoqish ----------
+async function setFreeze(enabled, btn) {
+  const r = await postJSON("/v1/portal/freeze", { phone: phoneVal("#st-phone") || phoneVal("#cd-phone"),
+                                                  pin: $("#fz-pin").value, enabled });
+  $("#fz-pin").value = "";
+  if (r.status !== 200) return show("#fz-result", "err", errText(codeOf(r)));
+  show("#fz-result", enabled ? "ok" : "warn", enabled
+    ? "✓ Yuz orqali to'lov qayta yoqildi."
+    : "Yuz orqali to'lov to'xtatildi. Endi hech kim sizning yuzingiz bilan to'lay olmaydi.");
+}
+$("#fz-off").onclick = (e) => busy(e.target, () => setFreeze(false, e.target));
+$("#fz-on").onclick = (e) => busy(e.target, () => setFreeze(true, e.target));
+
+// ---------- Ma'lumotlarni yuklab olish ----------
+$("#ex-btn").onclick = (e) => busy(e.target, async () => {
+  const r = await postJSON("/v1/portal/export", { phone: phoneVal("#st-phone") || phoneVal("#cd-phone"),
+                                                  pin: $("#ex-pin").value });
+  $("#ex-pin").value = "";
+  if (r.status !== 200) return show("#ex-result", "err", errText(codeOf(r)));
+  const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "facepay-malumotlarim.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  show("#ex-result", "ok", "✓ Fayl yuklab olindi.");
 });
 
 // ---------- Sozlamalar ----------

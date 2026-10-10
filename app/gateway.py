@@ -47,6 +47,7 @@ class CardGateway(Protocol):
     def send_code(self, token: str) -> str: ...
     def verify(self, token: str, code: str) -> None: ...
     def charge(self, token: str, amount: int, order_id: str) -> str: ...
+    def refund(self, provider_tx_id: str, amount: int) -> str: ...
     def remove(self, token: str) -> None: ...
 
 
@@ -110,6 +111,11 @@ class MockGateway:
             raise GatewayError("kartada_mablag_yetarli_emas")
         return f"mock_tx_{order_id}"
 
+    def refund(self, provider_tx_id: str, amount: int) -> str:
+        if not provider_tx_id:
+            raise GatewayError("tolov_topilmadi")
+        return f"mock_refund_{provider_tx_id}"
+
     def remove(self, token: str) -> None:
         self._check(token)
 
@@ -161,6 +167,11 @@ class PaymeGateway:
         if paid["receipt"].get("state") != 4:  # 4 = to'langan
             raise GatewayError("tolov_otmadi")
         return rid
+
+    def refund(self, provider_tx_id: str, amount: int) -> str:
+        """Payme: to'lovni bekor qilish (to'liq yoki qisman)."""
+        res = self._call("receipts.cancel", {"id": provider_tx_id}, True)
+        return res.get("receipt", {}).get("_id", provider_tx_id)
 
     def remove(self, token: str) -> None:
         self._call("cards.remove", {"token": token}, False)

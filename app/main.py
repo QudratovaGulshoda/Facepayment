@@ -26,7 +26,7 @@ from app.config import get_settings
 from app.core import audit, get_core, verify_audit_chain
 from app.db import (AuditLog, Card, Challenge, Merchant, Terminal, Transaction, User, get_session,
                     session_factory, utcnow)
-from app.schemas import (AmountIn, CaptureIn, CardAddIn, CardIdPhonePinIn, CardVerifyIn, CardVerifyPortalIn, DeleteIn,
+from app.schemas import (AmountIn, CaptureIn, CardAddIn, DisputeIn, FreezeIn, RefundIn, CardIdPhonePinIn, CardVerifyIn, CardVerifyPortalIn, DeleteIn,
                          EnrollIn, MerchantIn, PairIn, PaymentIn, PhonePinIn, PinIn, PinResetIn, TerminalIn,
                          TopUpIn, VariantIn)
 from app.security.terminal_auth import SignatureError, verify_request
@@ -384,6 +384,17 @@ def cashier_cancel(request_id: str, req: SignedRequest = Depends(signed_terminal
     return {"cancelled": True}
 
 
+@app.post("/v1/cashier/refund")
+def cashier_refund(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
+    """Tovar qaytarilganda kassir to'lovni qaytaradi (to'liq yoki qisman)."""
+    if req.terminal.role not in ("cashier", "payment"):
+        raise HTTPException(403, "ruxsat_yoq")
+    data = req.parse(RefundIn)
+    tx = payments.refund(db, req.terminal, data.transaction_id, data.amount)
+    return {"transaction_id": tx.id, "amount": tx.amount, "refunded": tx.refunded_amount,
+            "status": "refunded" if tx.refunded_amount >= tx.amount else "partially_refunded"}
+
+
 @app.post("/v1/cashier/transactions")
 def cashier_transactions(req: SignedRequest = Depends(signed_terminal), db: Session = Depends(get_session)):
     require_role(req, "cashier")
@@ -489,6 +500,24 @@ def portal_delete_card(data: CardIdPhonePinIn, t: Terminal = Depends(portal_clie
     return {"deleted": True}
 
 
+@app.post("/v1/portal/freeze")
+def portal_freeze(data: FreezeIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    """Yuz orqali to'lovni vaqtincha o'chirish/yoqish (rozilikni qaytarib olish)."""
+    return users.set_face_payments(db, data.phone, data.pin, data.enabled)
+
+
+@app.post("/v1/portal/dispute")
+def portal_dispute(data: DisputeIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    """"Bu to'lovni men qilmaganman": tranzaksiya nizoli deb belgilanadi, yuz to'lovlari to'xtatiladi."""
+    return payments.dispute(db, data.phone, data.pin, data.transaction_id)
+
+
+@app.post("/v1/portal/export")
+def portal_export(data: PhonePinIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
+    """Ma'lumotlarni ko'chirish huquqi (GDPR 20-modda)."""
+    return users.export_data(db, data.phone, data.pin)
+
+
 @app.post("/v1/portal/history")
 def portal_history(data: PhonePinIn, t: Terminal = Depends(portal_client), db: Session = Depends(get_session)):
     return {"transactions": payments.user_history(db, data.phone, data.pin)}
@@ -567,7 +596,9 @@ def admin_stats(db: Session = Depends(get_session)):
 
 @app.post("/v1/admin/cleanup", dependencies=[Depends(require_admin)])
 def admin_cleanup(db: Session = Depends(get_session)):
-    return checkout.housekeeping(db, force=True)
+    out = checkout.housekeeping(db, force=True)
+    out["templates_expired"] = users.retention_cleanup(db)   # saqlash muddati siyosati
+    return out
 
 
 @app.get("/v1/admin/audit/verify", dependencies=[Depends(require_admin)])

@@ -18,7 +18,8 @@ from app.biometrics.matcher import TemplateInfo, decide, needs_reenrollment, pla
 from app.biometrics.pipeline import CaptureResult
 from app.config import get_settings
 from app.core import audit, get_core
-from app.db import Card, FaceTemplate, MatchEvent, Merchant, Terminal, Transaction, User, new_id, utcnow
+from app.db import (Card, FaceTemplate, MatchEvent, Merchant, Terminal, TerminalPairing, Transaction, User,
+                    new_id, utcnow)
 from app.gateway import GatewayError, get_gateway
 from app.services.cards import card_token
 from app.services.users import (ServiceError, check_account_active, check_not_locked, mask_name,
@@ -72,6 +73,7 @@ def _approve(db: Session, tx: Transaction, user: User, method: str) -> Transacti
     merchant.balance += tx.amount
     tx.status = "approved"
     tx.method = method
+    user.last_activity_at = utcnow()
     audit(db, f"terminal:{tx.terminal_id}", "payment_approved", tx_id=tx.id, user_id=user.id,
           amount=tx.amount, method=method, funding="card" if card else "balance")
     db.commit()
@@ -119,7 +121,7 @@ def _adapt_templates(db: Session, user: User, capture: CaptureResult, score: flo
 
 def create_payment(db: Session, terminal: Terminal, idempotency_key: str, amount: int,
                    capture: CaptureResult) -> tuple[Transaction, dict]:
-    s = get_settings()
+    s = s_cfg = get_settings()
     core = get_core()
 
     existing = db.scalars(select(Transaction).where(
@@ -150,6 +152,20 @@ def create_payment(db: Session, terminal: Terminal, idempotency_key: str, amount
         check_account_active(user)
     except ServiceError as e:
         return _decline(db, tx, e.code), {}
+    if not user.face_payments_enabled:
+        # Foydalanuvchi yuz orqali to'lovni o'zi o'chirib qo'ygan (yoki nizo sababli muzlatilgan)
+        return _decline(db, tx, "yuz_tolovlari_ochirilgan"), {}
+
+    # Ikki marta yechib olishdan himoya: Moskva metrosida 2022-yilda shunday hodisa bo'lgan.
+    # Idempotentlik kaliti faqat bir xil so'rov takrorlansa yordam beradi; bu qoida esa
+    # "tasodifan ikki marta bosildi" holatini ham to'xtatadi.
+    window = utcnow() - timedelta(seconds=s_cfg.duplicate_window_seconds)
+    recent = db.scalars(select(Transaction).where(
+        Transaction.user_id == user.id, Transaction.terminal_id == terminal.id,
+        Transaction.amount == amount, Transaction.status == "approved",
+        Transaction.created_at >= window)).first()
+    if recent:
+        return _decline(db, tx, "takroriy_tolov"), {"duplicate_of": recent.id}
 
     now = utcnow()
     recent = list(db.scalars(select(MatchEvent.score).where(MatchEvent.user_id == user.id)
@@ -199,7 +215,8 @@ def confirm_pin(db: Session, terminal: Terminal, tx_id: str, pin: str) -> Transa
 
 def _tx_row(tx: Transaction, merchant_name: str | None = None) -> dict:
     row = {"id": tx.id, "time": tx.created_at.isoformat() + "Z", "amount": tx.amount, "status": tx.status,
-           "method": tx.method, "funding": tx.funding, "reason": tx.decline_reason}
+           "method": tx.method, "funding": tx.funding, "reason": tx.decline_reason,
+           "refunded": tx.refunded_amount, "disputed": tx.disputed}
     if merchant_name is not None:
         row["merchant"] = merchant_name
     return row
@@ -222,3 +239,56 @@ def terminal_history(db: Session, terminal: Terminal, limit: int = 20) -> dict:
     today = db.scalar(select(func.coalesce(func.sum(Transaction.amount), 0)).where(
         Transaction.terminal_id == terminal.id, Transaction.status == "approved", Transaction.created_at >= start))
     return {"today_total": int(today), "transactions": [_tx_row(tx) for tx in db.scalars(q)]}
+
+
+def refund(db: Session, terminal: Terminal, tx_id: str, amount: int | None = None) -> Transaction:
+    """To'lovni qaytarish. Do'konda tovar qaytarilganda kassir bajaradi (qisman ham mumkin)."""
+    tx = db.get(Transaction, tx_id)
+    if not tx:
+        raise ServiceError("tranzaksiya_topilmadi", 404)
+    allowed = {terminal.id} | ({p.camera_terminal_id} if (p := db.get(TerminalPairing, terminal.id)) else set())
+    if tx.terminal_id not in allowed:
+        raise ServiceError("tranzaksiya_topilmadi", 404)
+    if tx.status != "approved":
+        raise ServiceError("tranzaksiya_holati_notogri", 409)
+    left = tx.amount - tx.refunded_amount
+    if left <= 0:
+        raise ServiceError("allaqachon_qaytarilgan", 409)
+    amount = left if amount is None else amount
+    if not (0 < amount <= left):
+        raise ServiceError("summa_notogri")
+
+    if tx.funding == "balance":
+        user = db.scalars(select(User).where(User.id == tx.user_id).with_for_update()).one()
+        user.balance += amount
+    else:
+        try:
+            get_gateway().refund(tx.provider_tx_id or "", amount)
+        except GatewayError as e:
+            raise ServiceError(e.code, 400)
+    merchant = db.scalars(select(Merchant).where(Merchant.id == tx.merchant_id).with_for_update()).one()
+    merchant.balance -= amount
+    tx.refunded_amount += amount
+    tx.refunded_at = utcnow()
+    audit(db, f"terminal:{terminal.id}", "payment_refunded", tx_id=tx.id, amount=amount,
+          full=tx.refunded_amount == tx.amount)
+    db.commit()
+    return tx
+
+
+def dispute(db: Session, phone: str, pin: str, tx_id: str) -> dict:
+    """Mijoz "bu to'lovni men qilmaganman" deydi.
+
+    Tranzaksiya nizoli deb belgilanadi va ehtiyot chorasi sifatida yuz orqali to'lovlar
+    darhol to'xtatiladi — chunki kimdir uning yuzi bilan to'lagan bo'lishi mumkin.
+    """
+    user = user_for_pin(db, phone, pin)
+    tx = db.get(Transaction, tx_id)
+    if not tx or tx.user_id != user.id:
+        raise ServiceError("tranzaksiya_topilmadi", 404)
+    tx.disputed = True
+    user.face_payments_enabled = False
+    user.frozen_reason = "nizo"
+    audit(db, "portal", "payment_disputed", tx_id=tx.id, user_id=user.id)
+    db.commit()
+    return {"disputed": True, "face_payments_enabled": False}

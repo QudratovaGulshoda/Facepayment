@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     max_cards_per_user: int = 3
     card_verify_max_attempts: int = 3
 
+    # --- Saqlash muddati va takroriy to'lov ---
+    # BIPA talabi: biometrik ma'lumot maqsadga erishilgach yoki oxirgi aloqadan 3 yil ichida yo'q qilinadi
+    retention_days: int = 3 * 365
+    duplicate_window_seconds: int = 60   # bir xil summa, bir xil terminal -> ikki marta yechilmasin
+    consent_version: str = "1.0"
+
     # --- Admin ---
     admin_api_key: str = ""
 

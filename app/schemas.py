@@ -104,3 +104,16 @@ class PairIn(BaseModel):
 
 class AmountIn(BaseModel):
     amount: int = Field(..., gt=0, le=100_000_000)
+
+
+class FreezeIn(PhonePinIn):
+    enabled: bool
+
+
+class DisputeIn(PhonePinIn):
+    transaction_id: str = Field(..., max_length=36)
+
+
+class RefundIn(BaseModel):
+    transaction_id: str = Field(..., max_length=36)
+    amount: int | None = Field(None, gt=0, le=100_000_000)   # bo'sh bo'lsa — to'liq qaytarish

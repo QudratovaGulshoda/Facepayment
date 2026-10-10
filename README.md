@@ -122,6 +122,33 @@ Demo kartalar:
 
 > **Prod uchun eslatma:** real tizimda karta raqamini protsessingning o'z formasi yoki SDK si orqali kiritish tavsiya etiladi. Shunda server karta raqamini umuman ko'rmaydi va PCI DSS talablari doirasi kichrayadi.
 
+## Chet eldagi tizimlar bilan taqqoslash
+
+Loyiha quyidagi ishlayotgan tizimlar tajribasi asosida to'ldirildi.
+
+| Tizim | Qamrov | Kuchli tomoni | Muammosi |
+|---|---|---|---|
+| **Alipay Smile to Pay** (Xitoy, 2017) | yuz minglab do'konlar | 3D kamera va liveness; keng tarqalgan | Ishonch muammosi: 2017-yilgi so'rovda respondentlarning ~70% i biometrik to'lov xavfsizligidan, 77% i maxfiylikdan xavotirda bo'lgan. Ishonch past bo'lsa, qo'shimcha tasdiqlash (telefon raqamining oxirgi 4 raqami) so'raladi |
+| **Moscow Metro Face Pay** (2021) | 1500+ turniket, 100 mln+ o'tish | Katta miqyosda ishlashi isbotlangan; sinovda xato ~0,01% deb e'lon qilingan | 2022-yilda ba'zi foydalanuvchilardan pul **bir necha marta yechilgan** (bank nosozligi). Kuzatuv (surveillance) bo'yicha jamoatchilik tanqidi kuchli |
+| **Mastercard Biometric Checkout** (2022) | pilot loyihalar | Standartlar va sertifikatlash talabi; yuz tasviri qurilmada qoladi, serverga shifrlangan shablon ketadi | Dasturning texnik talablari ochiq e'lon qilinmagan |
+| **NIST SP 800-63A / FIDO / ISO-IEC 30107** | standartlar | Aniq talablar: majburiy **aniq rozilik**, liveness (PAD) sinovi, IAPAR chegarasi | Sertifikatlash laboratoriya sinovini talab qiladi |
+
+**Ulardan o'rganib, loyihaga qo'shilgan imkoniyatlar:**
+
+| Muammo (qayerda ko'rilgan) | Bizning yechimimiz | Test |
+|---|---|---|
+| Bir to'lov uchun bir necha marta pul yechilishi (Moskva, 2022) | Idempotentlik kalitidan tashqari: bir xil terminal + bir xil summa 60 soniya ichida takrorlansa, rad etiladi | `test_duplicate_charge_is_blocked` |
+| Foydalanuvchi ishonchi va rozilikni qaytarib olish (GDPR, BIPA) | Kabinetdan **yuz to'lovlarini vaqtincha o'chirish/yoqish**. Shablonlar saqlanadi, hisob o'chmaydi | `test_user_can_switch_face_payments_off_and_on` |
+| Begona to'lovni e'tiroz bildirish | To'lovlar tarixida **"Bu men emasman"**: tranzaksiya nizoli deb belgilanadi va yuz to'lovlari darhol to'xtatiladi | `test_dispute_marks_transaction_and_freezes_face_payments` |
+| Savdoda tovar qaytarish | Kassadan **to'liq yoki qisman qaytarish**; pul kartaga yoki balansga qaytadi | `test_cashier_can_refund_full_and_partial` |
+| Ma'lumotlarni ko'chirish huquqi (GDPR 20-modda) | Kabinetdan barcha ma'lumotlarni JSON fayl sifatida yuklab olish (shablonning o'zi berilmaydi) | `test_data_export` |
+| Biometrik ma'lumotni muddatsiz saqlash (BIPA: 3 yil) | **Saqlash muddati siyosati**: 3 yil faolliksiz hisobning shablonlari avtomatik o'chiriladi | `test_retention_policy_removes_old_templates` |
+| Rozilik matni keyin o'zgarsa | Rozilik **versiyasi** va sanasi saqlanadi, eksportda ko'rinadi | `test_data_export` |
+
+**Nimada ulardan oldinda:** Alipay va Moscow Metro'da yuz shabloni odatda shifrlangan holda saqlanadi, lekin asl vektor ko'rinishida. Bizda shablon avval maxfiy ortogonal matritsa bilan o'zgartiriladi (bekor qilinadigan biometriya): kalit almashtirilsa, o'g'irlangan shablonlar butunlay yaroqsiz bo'ladi va ular boshqa tizimga qarshi ishlatilmaydi.
+
+**Nimada ortda:** ularda 3D yoki infraqizil kameralar bor (bizda oddiy kamera), laboratoriya sertifikati (ISO/IEC 30107-3) olingan va millionlab foydalanuvchida sinalgan.
+
 ## Tajriba natijalari (LFW bazasi)
 
 Ochiq [LFW](https://vis-www.cs.umass.edu/lfw/) bazasida o'lchandi: 1680 shaxs, 3294 surat, 4381 ta haqiqiy va 20 000 ta soxta juftlik.
@@ -305,6 +332,7 @@ tests/                       56 ta test
 - **Masshtab:** galereya RAM'da saqlanadi (numpy). Millionlab foydalanuvchi uchun FAISS/HNSW indeks, PostgreSQL, Redis (nonce va rate limit) kerak bo'ladi.
 - **Kalitlarni boshqarish:** master kalit `.env` da turibdi. Prod muhitda HSM yoki KMS ishlatiladi, kalitlar muntazam almashtiriladi (versiya maydoni tayyor).
 - **Passiv liveness:** MiniFASNetV2 ochiq ma'lumotlarda o'qitilgan. Real kamera va yoritish sharoitida qo'shimcha o'qitish (fine-tuning) aniqlikni oshiradi. Model yo'q bo'lsa ishlatiladigan evristika zaif, uni faqat demo uchun ishlatish mumkin.
+- **Laboratoriya sertifikati:** liveness ISO/IEC 30107-3 bo'yicha mustaqil sinovdan o'tkazilmagan; NIST SP 800-63A talab qiladigan IAPAR ko'rsatkichi o'lchanmagan.
 - **PIN tiklash uchun SMS:** hozir PIN faqat yuz orqali tiklanadi (liveness + 1:N margin). Real tizimda qo'shimcha ravishda ro'yxatdagi telefonga SMS kod yuboriladi (SMS provayder: Eskiz, Play Mobile).
 - **Karta protsessingi:** Payme integratsiyasi yozilgan, lekin haqiqiy merchant kaliti bilan sinalmagan. Metod nomlari va maydonlarni Payme hujjatlari bilan solishtirish kerak.
 
